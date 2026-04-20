@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
@@ -25,54 +26,24 @@ type VerifyResult struct {
 }
 
 func Verify(rc *config.ResourceConfig, method, authority, path string, headers map[string][]string, jwksClient jwksFetcher) VerifyResult {
-	// 1. Extract raw signature headers
+	// 1. Extract raw signature headers.
 	if len(headers["signature"]) == 0 || len(headers["signature-input"]) == 0 || len(headers["signature-key"]) == 0 {
 		return VerifyResult{Err: ErrMissingSignature}
 	}
 
-	// 2. Parse Signature-Key
-	sigKeyStr := ""
-	for i, v := range headers["signature-key"] {
-		if i > 0 {
-			sigKeyStr += ", "
-		}
-		sigKeyStr += v
-	}
-
+	// 2. Parse Signature-Key.
+	sigKeyStr := strings.Join(headers["signature-key"], ", ")
 	parsedKey, err := sigkey.Parse(sigKeyStr)
 	if err != nil {
 		return VerifyResult{Err: ErrInvalidSignature}
 	}
 
-	// 3. Resolve verification key based on scheme (only HWK for Phase 1)
 	var pubKey ed25519.PublicKey
 	var identity Identity
 
 	switch parsedKey.Scheme {
 	case sigkey.SchemeHWK:
-		if !rc.AllowPseudonymous {
-			// They sent HWK but we don't allow pseudonymous. We need to 401 them
-			// and tell them to get an auth-token.
-			// Return a special error to trigger the challenge.
-			identity.Level = LevelPseudonymous
-
-			// Extract JKT for resource token binding
-			kty, _ := parsedKey.HWK["kty"].(string)
-			crv, _ := parsedKey.HWK["crv"].(string)
-			x, _ := parsedKey.HWK["x"].(string)
-
-			if kty == "OKP" && crv == "Ed25519" && x != "" {
-				xBytes, err := base64.RawURLEncoding.DecodeString(x)
-				if err == nil && len(xBytes) == ed25519.PublicKeySize {
-					pub := ed25519.PublicKey(xBytes)
-					jkt, _ := ExtractJWKThumbprint(pub)
-					identity.JKT = jkt
-				}
-			}
-
-			return VerifyResult{Identity: identity, Err: ErrInsufficientScope} // Reusing ErrInsufficientScope as a "level too low" indicator for now
-		}
-
+		// Non-standard pseudonymous extension: inline bare key.
 		kty, _ := parsedKey.HWK["kty"].(string)
 		crv, _ := parsedKey.HWK["crv"].(string)
 		x, _ := parsedKey.HWK["x"].(string)
@@ -85,7 +56,21 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		if err != nil || len(xBytes) != ed25519.PublicKeySize {
 			return VerifyResult{Err: ErrInvalidKey}
 		}
-		pubKey = ed25519.PublicKey(xBytes)
+		pub := ed25519.PublicKey(xBytes)
+
+		jkt, jktErr := ExtractJWKThumbprint(pub)
+		if jktErr != nil {
+			return VerifyResult{Err: ErrInvalidKey}
+		}
+		identity.JKT = jkt
+
+		if !rc.AllowPseudonymous {
+			// Level too low — return identity so a bound resource-token can be minted.
+			identity.Level = LevelPseudonymous
+			return VerifyResult{Identity: identity, Err: ErrInsufficientScope}
+		}
+
+		pubKey = pub
 		identity.Level = LevelPseudonymous
 
 	case sigkey.SchemeJWKSURI:
@@ -93,7 +78,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			return VerifyResult{Err: ErrInvalidKey}
 		}
 
-		// Verify the issuer is an allowed agent server
+		// Verify the JWKS URI belongs to a known agent server.
 		var agentServer string
 		for _, as := range rc.AgentServers {
 			if as.JwksURI == parsedKey.JWKSURI {
@@ -101,7 +86,6 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 				break
 			}
 		}
-
 		if agentServer == "" {
 			return VerifyResult{Err: ErrInvalidKey}
 		}
@@ -112,7 +96,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		}
 
 		if parsedKey.KeyID == "" {
-			return VerifyResult{Err: ErrInvalidKey} // kid is mandatory for jwks_uri
+			return VerifyResult{Err: ErrInvalidKey}
 		}
 
 		key, ok := set.LookupKeyID(parsedKey.KeyID)
@@ -142,29 +126,36 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			return VerifyResult{Err: ErrInvalidKey}
 		}
 
-		// First parse the JWT unverified to get the issuer
-		header, claimsMap, err := parseJWTUnverified(parsedKey.JWT)
+		// Peek at the JWT header to get typ and iss before verifying.
+		jwtHeader, jwtClaimsMap, err := parseJWTUnverified(parsedKey.JWT)
 		if err != nil {
 			return VerifyResult{Err: ErrInvalidJWT}
 		}
 
-		typ, _ := header["typ"].(string)
-		iss, _ := claimsMap["iss"].(string)
+		typ, _ := jwtHeader["typ"].(string)
+		iss, _ := jwtClaimsMap["iss"].(string)
+		dwk, _ := jwtClaimsMap["dwk"].(string)
 
-		if typ == "agent+jwt" {
-			var jwksURI string
+		if typ == "aa-agent+jwt" {
+			// Verify the issuer is a known agent server (SSRF protection).
+			var knownAgentServer bool
 			for _, as := range rc.AgentServers {
 				if as.Issuer == iss {
-					jwksURI = as.JwksURI
+					knownAgentServer = true
 					break
 				}
 			}
-
-			if jwksURI == "" {
+			if !knownAgentServer {
 				return VerifyResult{Err: ErrInvalidJWT}
 			}
 
-			set, err := jwksClient.Get(context.Background(), jwksURI)
+			// Discover JWKS via {iss}/.well-known/{dwk} per AAuth spec.
+			if dwk == "" {
+				return VerifyResult{Err: ErrInvalidJWT}
+			}
+			discoveryURL := strings.TrimRight(iss, "/") + "/.well-known/" + dwk
+
+			set, err := jwksClient.Get(context.Background(), discoveryURL)
 			if err != nil {
 				return VerifyResult{Err: ErrInvalidKey}
 			}
@@ -174,27 +165,8 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 				return VerifyResult{Err: err}
 			}
 
-			// We need a public key for HTTPSig verification
-			// For JWT scheme, the key used to sign the HTTP request MUST match cnf.jwk
-			// We haven't verified the signature yet, so we don't have the pubkey.
-			// Actually, the sender must embed the public key in the Signature-Key header params too?
-			// No, the spec says for JWT scheme, the cnf.jwk is the verification key.
-
-			// Let's decode cnf.jwk from the token and use it as pubKey
-			if cnf, ok := claimsMap["cnf"].(map[string]interface{}); ok {
-				if jwkMap, ok := cnf["jwk"].(map[string]interface{}); ok {
-					b, _ := json.Marshal(jwkMap)
-					if key, err := jwk.ParseKey(b); err == nil {
-						var rawKey interface{}
-						if err := key.Raw(&rawKey); err == nil {
-							if edKey, ok := rawKey.(ed25519.PublicKey); ok {
-								pubKey = edKey
-							}
-						}
-					}
-				}
-			}
-
+			// The HTTP request must be signed with the key bound in cnf.jwk.
+			pubKey = extractEd25519FromCnf(jwtClaimsMap)
 			if pubKey == nil {
 				return VerifyResult{Err: ErrInvalidKey}
 			}
@@ -203,20 +175,27 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			identity.AgentServer = iss
 			identity.Delegate = agentClaims.Sub
 			identity.JKT = agentClaims.CnfJWK
-		} else if typ == "auth+jwt" {
-			var jwksURI string
+
+		} else if typ == "aa-auth+jwt" {
+			// Verify the issuer is a known auth server (SSRF protection).
+			var knownAuthServer bool
 			for _, as := range rc.AuthServers {
 				if as.Issuer == iss {
-					jwksURI = as.JwksURI
+					knownAuthServer = true
 					break
 				}
 			}
-
-			if jwksURI == "" {
+			if !knownAuthServer {
 				return VerifyResult{Err: ErrInvalidJWT}
 			}
 
-			set, err := jwksClient.Get(context.Background(), jwksURI)
+			// Discover JWKS via {iss}/.well-known/{dwk} per AAuth spec.
+			if dwk == "" {
+				return VerifyResult{Err: ErrInvalidJWT}
+			}
+			discoveryURL := strings.TrimRight(iss, "/") + "/.well-known/" + dwk
+
+			set, err := jwksClient.Get(context.Background(), discoveryURL)
 			if err != nil {
 				return VerifyResult{Err: ErrInvalidKey}
 			}
@@ -226,22 +205,20 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 				return VerifyResult{Err: err}
 			}
 
-			if cnf, ok := claimsMap["cnf"].(map[string]interface{}); ok {
-				if jwkMap, ok := cnf["jwk"].(map[string]interface{}); ok {
-					b, _ := json.Marshal(jwkMap)
-					if key, err := jwk.ParseKey(b); err == nil {
-						var rawKey interface{}
-						if err := key.Raw(&rawKey); err == nil {
-							if edKey, ok := rawKey.(ed25519.PublicKey); ok {
-								pubKey = edKey
-							}
-						}
-					}
-				}
-			}
-
+			// The HTTP request must be signed with the key bound in cnf.jwk.
+			pubKey = extractEd25519FromCnf(jwtClaimsMap)
 			if pubKey == nil {
 				return VerifyResult{Err: ErrInvalidKey}
+			}
+
+			// Verify act.sub matches cnf.jwk thumbprint (the agent's signing key identity).
+			if authClaims.Act == nil || authClaims.Act.Sub != authClaims.CnfJWK {
+				return VerifyResult{Err: ErrInvalidToken}
+			}
+
+			// Verify agent is a non-empty HTTPS URL and (if configured) matches a known agent server.
+			if authClaims.Agent == "" || !strings.HasPrefix(authClaims.Agent, "https://") {
+				return VerifyResult{Err: ErrInvalidToken}
 			}
 
 			identity.Level = LevelAuthorized
@@ -250,6 +227,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			identity.Scope = authClaims.Scope
 			identity.Txn = authClaims.Txn
 			identity.JKT = authClaims.CnfJWK
+
 		} else {
 			return VerifyResult{Err: ErrUnsupportedScheme}
 		}
@@ -258,7 +236,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		return VerifyResult{Err: ErrUnsupportedScheme}
 	}
 
-	// 4. HTTPSig verify
+	// 4. HTTPSig verify.
 	reqComps := []string{"@method", "@authority", "@path", "signature-key"}
 	reqComps = append(reqComps, rc.AdditionalSignatureComponents...)
 
@@ -279,6 +257,9 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		if errors.Is(err, httpsig.ErrMissingSignature) {
 			return VerifyResult{Err: ErrMissingSignature}
 		}
+		if errors.Is(err, httpsig.ErrMissingSignatureKeyCoverage) {
+			return VerifyResult{Err: ErrInvalidSignature}
+		}
 		if errors.Is(err, httpsig.ErrUnsupportedAlgorithm) {
 			return VerifyResult{Err: ErrUnsupportedAlgorithm}
 		}
@@ -286,4 +267,33 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 	}
 
 	return VerifyResult{Identity: identity, Err: nil}
+}
+
+// extractEd25519FromCnf pulls the Ed25519 public key from a JWT's cnf.jwk claim map.
+func extractEd25519FromCnf(claimsMap map[string]interface{}) ed25519.PublicKey {
+	cnf, ok := claimsMap["cnf"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	jwkMap, ok := cnf["jwk"].(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	b, err := json.Marshal(jwkMap)
+	if err != nil {
+		return nil
+	}
+	key, err := jwk.ParseKey(b)
+	if err != nil {
+		return nil
+	}
+	var rawKey interface{}
+	if err := key.Raw(&rawKey); err != nil {
+		return nil
+	}
+	edKey, ok := rawKey.(ed25519.PublicKey)
+	if !ok {
+		return nil
+	}
+	return edKey
 }

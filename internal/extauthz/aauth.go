@@ -68,9 +68,9 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		var hint *aauth.AgentHint
 		if res.Identity.Level != "" {
 			hint = &aauth.AgentHint{
-				Agent:    res.Identity.AgentServer,
-				AgentJKT: res.Identity.JKT,
-				Scope:    res.Identity.Scope,
+				AgentIdentifier: res.Identity.Delegate,
+				AgentJKT:        res.Identity.JKT,
+				Scope:           res.Identity.Scope,
 			}
 		}
 
@@ -124,18 +124,6 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			Reason:      decision.Reason,
 			LatencyMs:   time.Since(start).Milliseconds(),
 		})
-		// Return 403
-		metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "allow").Inc()
-		metrics.CheckLatency.WithLabelValues(rc.ID, "allow").Observe(time.Since(start).Seconds())
-
-		logging.LogDecision(logging.DecisionLog{
-			ResourceID:  rc.ID,
-			Level:       levelStr,
-			AgentServer: res.Identity.AgentServer,
-			Delegate:    res.Identity.Delegate,
-			Result:      "allowed",
-			LatencyMs:   time.Since(start).Milliseconds(),
-		})
 
 		return &pb.CheckResponse{
 			Status: &pb.Status{Code: 7}, // PERMISSION_DENIED
@@ -151,21 +139,29 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 	// Build success response with upstream headers
 	upstreamHeaders := aauth.ToUpstreamHeaders(res.Identity)
 
+	metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "allow").Inc()
+	metrics.CheckLatency.WithLabelValues(rc.ID, "allow").Observe(time.Since(start).Seconds())
+
+	logging.LogDecision(logging.DecisionLog{
+		ResourceID:  rc.ID,
+		Level:       levelStr,
+		AgentServer: res.Identity.AgentServer,
+		Delegate:    res.Identity.Delegate,
+		Result:      "allowed",
+		LatencyMs:   time.Since(start).Milliseconds(),
+	})
+
+	var headersToRemove []string
 	if rc.StripSignatureHeaders {
-		// Note: we'd need to add these to HeadersToRemove
-		// For simplicity, we'll just leave it out for this iteration or add them here.
+		headersToRemove = []string{"signature", "signature-input", "signature-key"}
 	}
 
 	return &pb.CheckResponse{
 		Status: &pb.Status{Code: 0}, // OK
 		HttpResponse: &pb.CheckResponse_OkResponse{
 			OkResponse: &pb.OkHttpResponse{
-				Headers: upstreamHeaders,
-				HeadersToRemove: []string{
-					"signature",
-					"signature-input",
-					"signature-key",
-				},
+				Headers:         upstreamHeaders,
+				HeadersToRemove: headersToRemove,
 			},
 		},
 	}, nil

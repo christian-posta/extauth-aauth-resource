@@ -62,7 +62,7 @@ func TestHandlerJwksURI(t *testing.T) {
 	h := extauthz.NewTestHandler(reg, aauthHandler)
 
 	// 4. Build Signature-Key header (jwks_uri scheme)
-	sigKeyVal := `sig=?1;scheme="jwks_uri";uri="` + jwksURI + `";keyid="as-key-1"`
+	sigKeyVal := `sig=jwks_uri;uri="` + jwksURI + `";keyid="as-key-1"`
 
 	// 5. Build HTTP Signature
 	headers := map[string][]string{

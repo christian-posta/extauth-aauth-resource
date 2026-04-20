@@ -74,7 +74,7 @@ func TestHandler(t *testing.T) {
 	// 2. Signed request (HWK)
 	pubBytes := pub
 	x64 := base64.RawURLEncoding.EncodeToString(pubBytes)
-	sigKeyVal := `sig=?1;scheme="hwk";kty="OKP";crv="Ed25519";x="` + x64 + `"`
+	sigKeyVal := `sig=hwk;kty="OKP";crv="Ed25519";x="` + x64 + `"`
 
 	headers := map[string][]string{
 		"signature-key": {sigKeyVal},

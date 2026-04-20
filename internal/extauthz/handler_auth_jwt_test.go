@@ -2,6 +2,7 @@ package extauthz_test
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -41,7 +42,8 @@ func TestHandlerAuthJWT(t *testing.T) {
 	mockJwks := jwksfetch.NewMockClient()
 	set := jwk.NewSet()
 	set.AddKey(authServerKey)
-	mockJwks.Keysets[jwksURI] = set
+	// AAuth spec discovery URL: {iss}/.well-known/aauth-access.json
+	mockJwks.Keysets["https://auth.example.com/.well-known/aauth-access.json"] = set
 
 	cfg := &config.Config{}
 	cfg.Resources = []config.ResourceConfigYAML{
@@ -67,20 +69,29 @@ func TestHandlerAuthJWT(t *testing.T) {
 	var jwkMap map[string]interface{}
 	json.Unmarshal(jwkBytes, &jwkMap)
 
+	// Compute the RFC 7638 thumbprint of the agent key for use in act.sub.
+	// act.sub must equal the JWK thumbprint of cnf.jwk per the AAuth spec.
+	agentJWKKey, _ := jwk.FromRaw(agentPub)
+	agentJKTBytes, _ := agentJWKKey.Thumbprint(crypto.SHA256)
+	agentJKT := base64.RawURLEncoding.EncodeToString(agentJKTBytes)
+
 	claims := map[string]interface{}{
 		"iss":   "https://auth.example.com",
+		"dwk":   "aauth-access.json",
 		"sub":   "test-delegate",
 		"aud":   "https://res.example.com",
 		"agent": "https://agents.example.com",
 		"scope": "read:data write:data",
+		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
+		"act":   map[string]interface{}{"sub": agentJKT},
 		"cnf": map[string]interface{}{
 			"jwk": jwkMap,
 		},
 	}
 
 	header := map[string]interface{}{
-		"typ": "auth+jwt",
+		"typ": "aa-auth+jwt",
 		"alg": "EdDSA",
 		"kid": "as-key-2",
 	}
@@ -92,7 +103,7 @@ func TestHandlerAuthJWT(t *testing.T) {
 	sig := ed25519.Sign(authServerPriv, []byte(unsignedToken))
 	tokenStr := unsignedToken + "." + base64.RawURLEncoding.EncodeToString(sig)
 
-	sigKeyVal := `sig=?1;scheme="jwt";jwt="` + tokenStr + `"`
+	sigKeyVal := `sig=jwt;jwt="` + tokenStr + `"`
 
 	headers := map[string][]string{
 		"signature-key": {sigKeyVal},

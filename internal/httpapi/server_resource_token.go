@@ -80,18 +80,18 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	// Mint token
+	// Mint token. MintResourceToken sets dwk, iat, and jti automatically.
 	claims := aauth.ResourceTokenClaims{
 		Iss:      rc.Issuer,
 		Aud:      reqBody.Aud,
 		AgentJKT: res.Identity.JKT,
 		Exp:      time.Now().Add(5 * time.Minute).Unix(),
 		Scope:    reqBody.Scope,
-		Jti:      "TODO-UUID", // Should generate real UUID
 	}
 
 	if res.Identity.Level == aauth.LevelIdentified || res.Identity.Level == aauth.LevelAuthorized {
-		claims.Agent = res.Identity.AgentServer
+		// agent claim = the agent's identifier (sub), not the server URL.
+		claims.Agent = res.Identity.Delegate
 	}
 
 	if rc.PrivateKey == nil {
@@ -117,9 +117,9 @@ func (s *Server) writeChallenge(w http.ResponseWriter, rc *config.ResourceConfig
 	var hint *aauth.AgentHint
 	if identity.Level != "" {
 		hint = &aauth.AgentHint{
-			Agent:    identity.AgentServer,
-			AgentJKT: identity.JKT,
-			Scope:    identity.Scope,
+			AgentIdentifier: identity.Delegate,
+			AgentJKT:        identity.JKT,
+			Scope:           identity.Scope,
 		}
 	}
 

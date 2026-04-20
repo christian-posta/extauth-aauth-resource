@@ -13,7 +13,22 @@ var (
 	ErrMissingScheme     = errors.New("missing scheme in signature-key")
 )
 
-// Parse extracts the signature key parameters from an RFC 8941 Dictionary header.
+// Parse extracts the signature key parameters from a Signature-Key header value.
+//
+// The header follows the HTTP Signature Keys specification. The format is an
+// RFC 8941 Dictionary with exactly one entry whose key is an arbitrary label
+// (typically "sig") and whose value is an Item. The Item's bare value is a
+// Token that names the scheme (e.g. "jwt", "jwks_uri", "hwk"). Scheme-specific
+// parameters are carried in the Item's parameters.
+//
+// Examples (per spec):
+//
+//	Signature-Key: sig=jwt; jwt="eyJhbGc..."
+//	Signature-Key: sig=jwks_uri; jwks_uri="https://..."
+//
+// The "hwk" scheme is a non-standard extension for pseudonymous inline keys:
+//
+//	Signature-Key: sig=hwk; kty="OKP"; crv="Ed25519"; x="..."
 func Parse(headerValue string) (Parsed, error) {
 	dict, err := structfields.ParseDictionary(headerValue)
 	if err != nil {
@@ -30,19 +45,16 @@ func Parse(headerValue string) (Parsed, error) {
 		return Parsed{}, fmt.Errorf("%w: entry must be an Item", ErrInvalidHeader)
 	}
 
-	params := item.Params
-	schemeParam, ok := params.Get("scheme")
+	// The scheme is the Token value of the Item, not a parameter.
+	scheme, ok := item.Value.(structfields.Token)
 	if !ok {
-		return Parsed{}, ErrMissingScheme
+		return Parsed{}, fmt.Errorf("%w: scheme must be a Token (bare identifier)", ErrInvalidHeader)
 	}
 
-	schemeStr, ok := schemeParam.(string)
-	if !ok {
-		return Parsed{}, fmt.Errorf("%w: scheme must be a string", ErrInvalidHeader)
-	}
+	params := item.Params
 
 	parsed := Parsed{
-		Scheme: Scheme(schemeStr),
+		Scheme: Scheme(scheme),
 	}
 
 	if keyidParam, ok := params.Get("keyid"); ok {
@@ -53,12 +65,14 @@ func Parse(headerValue string) (Parsed, error) {
 
 	switch parsed.Scheme {
 	case SchemeHWK:
+		// Non-standard pseudonymous extension. All params (except keyid) are JWK fields.
 		parsed.HWK = make(map[string]interface{})
 		for _, p := range params {
-			if p.Name != "scheme" && p.Name != "keyid" {
+			if p.Name != "keyid" {
 				parsed.HWK[p.Name] = p.Value
 			}
 		}
+
 	case SchemeJWT:
 		jwtParam, ok := params.Get("jwt")
 		if !ok {
@@ -69,6 +83,7 @@ func Parse(headerValue string) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("%w: 'jwt' parameter must be a string", ErrInvalidHeader)
 		}
 		parsed.JWT = jwtStr
+
 	case SchemeJWKSURI:
 		uriParam, ok := params.Get("uri")
 		if !ok {
@@ -79,10 +94,12 @@ func Parse(headerValue string) (Parsed, error) {
 			return Parsed{}, fmt.Errorf("%w: 'uri' parameter must be a string", ErrInvalidHeader)
 		}
 		parsed.JWKSURI = uriStr
+
 	case SchemeX509:
 		return Parsed{}, ErrUnsupportedScheme
+
 	default:
-		return Parsed{}, fmt.Errorf("%w: %s", ErrUnsupportedScheme, schemeStr)
+		return Parsed{}, fmt.Errorf("%w: %s", ErrUnsupportedScheme, string(scheme))
 	}
 
 	return parsed, nil

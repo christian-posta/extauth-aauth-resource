@@ -5,7 +5,8 @@ import (
 )
 
 func TestParseHWK(t *testing.T) {
-	input := `sig=?1;scheme="hwk";kty="OKP";crv="Ed25519";x="test-x"`
+	// Spec format: scheme is the Item value (Token), JWK params follow as item params.
+	input := `sig=hwk;kty="OKP";crv="Ed25519";x="test-x"`
 	parsed, err := Parse(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -24,7 +25,7 @@ func TestParseHWK(t *testing.T) {
 }
 
 func TestParseJWT(t *testing.T) {
-	input := `sig=?1;scheme="jwt";jwt="eyJ0eXAi...";keyid="foo"`
+	input := `sig=jwt;jwt="eyJ0eXAi...";keyid="foo"`
 	parsed, err := Parse(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -42,7 +43,7 @@ func TestParseJWT(t *testing.T) {
 }
 
 func TestParseJWKSURI(t *testing.T) {
-	input := `sig=?1;scheme="jwks_uri";uri="https://example.com/jwks.json"`
+	input := `sig=jwks_uri;uri="https://example.com/jwks.json"`
 	parsed, err := Parse(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -57,7 +58,7 @@ func TestParseJWKSURI(t *testing.T) {
 }
 
 func TestParseUnsupported(t *testing.T) {
-	input := `sig=?1;scheme="x509"`
+	input := `sig=x509`
 	_, err := Parse(input)
 	if err != ErrUnsupportedScheme {
 		t.Errorf("expected ErrUnsupportedScheme, got %v", err)

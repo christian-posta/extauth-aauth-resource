@@ -4,8 +4,13 @@
 *.dll
 *.so
 *.dylib
-aauth-service
-policy-engine
+
+# Go build outputs at repo root (go build -o …)
+/aauth-service
+/policy-engine
+/sign-request
+/debug-extauthz
+/integration-test
 
 # Test binary, built with `go test -c`
 *.test

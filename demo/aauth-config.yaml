@@ -1,0 +1,38 @@
+# AAuth Resource-Side ExtAuthZ Service configuration for local demo
+#
+# The service listens on:
+#   gRPC :7070  — Envoy/agentgateway ext_authz endpoint
+#   HTTP  :8080  — JWKS + resource-token endpoints
+#
+# Set AAUTH_CONFIG=demo/aauth-config.yaml before running the server.
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl:   30s
+
+resources:
+  - id: gemini-api
+    issuer: "http://localhost:8080"          # HTTP for local demo
+    hosts:
+      - "localhost:3000"
+      - "localhost"
+
+    signing_key:
+      kid: "demo-key-1"
+      alg: "EdDSA"
+      private_key_file: "demo/resource_key.pem"
+
+    # How long a received HTTP Message Signature is valid
+    signature_window: 60s
+
+    # Allow requests that carry only an inline bare public key (hwk scheme).
+    # These get identity level "pseudonymous" — no real-world identity,
+    # but the key is stable so the resource can bind it to a resource-token.
+    allow_pseudonymous: true
+
+    # After a successful auth the signature headers are not needed upstream.
+    strip_signature_headers: true
+
+    # The authorization server agents should obtain tokens from.
+    # Used to build the AAuth-Requirement challenge header.
+    authorization_endpoint: "http://localhost:8081/authorize"

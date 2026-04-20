@@ -46,7 +46,8 @@ func TestHandlerAgentJWT(t *testing.T) {
 	mockJwks := jwksfetch.NewMockClient()
 	set := jwk.NewSet()
 	set.AddKey(agentServerKey)
-	mockJwks.Keysets[jwksURI] = set
+	// AAuth spec discovery URL: {iss}/.well-known/aauth-agent.json
+	mockJwks.Keysets["https://agents.example.com/.well-known/aauth-agent.json"] = set
 
 	// 3. Setup Config and Handler
 	cfg := &config.Config{}
@@ -76,8 +77,10 @@ func TestHandlerAgentJWT(t *testing.T) {
 
 	claims := map[string]interface{}{
 		"iss": "https://agents.example.com",
+		"dwk": "aauth-agent.json",
 		"sub": "test-delegate",
 		"aud": "https://res.example.com",
+		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(5 * time.Minute).Unix(),
 		"cnf": map[string]interface{}{
 			"jwk": jwkMap,
@@ -85,7 +88,7 @@ func TestHandlerAgentJWT(t *testing.T) {
 	}
 
 	header := map[string]interface{}{
-		"typ": "agent+jwt",
+		"typ": "aa-agent+jwt",
 		"alg": "EdDSA",
 		"kid": "as-key-1",
 	}
@@ -98,7 +101,7 @@ func TestHandlerAgentJWT(t *testing.T) {
 	tokenStr := unsignedToken + "." + base64.RawURLEncoding.EncodeToString(sig)
 
 	// 5. Build Signature-Key header
-	sigKeyVal := `sig=?1;scheme="jwt";jwt="` + tokenStr + `"`
+	sigKeyVal := `sig=jwt;jwt="` + tokenStr + `"`
 
 	// 6. Build HTTP Signature
 	headers := map[string][]string{

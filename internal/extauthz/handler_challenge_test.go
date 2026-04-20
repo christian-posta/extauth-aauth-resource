@@ -48,7 +48,7 @@ func TestHandlerChallengeWithToken(t *testing.T) {
 
 	pubBytes := pub
 	x64 := base64.RawURLEncoding.EncodeToString(pubBytes)
-	sigKeyVal := `sig=?1;scheme="hwk";kty="OKP";crv="Ed25519";x="` + x64 + `"`
+	sigKeyVal := `sig=hwk;kty="OKP";crv="Ed25519";x="` + x64 + `"`
 
 	headers := map[string][]string{
 		"signature-key": {sigKeyVal},
@@ -124,12 +124,12 @@ func TestHandlerChallengeWithToken(t *testing.T) {
 		t.Fatalf("missing resource-token in AAuth-Requirement")
 	}
 
-	tokenStr, ok := tokenItem.(structfields.Item).Value.(structfields.Token)
+	tokenStr, ok := tokenItem.(structfields.Item).Value.(string)
 	if !ok {
-		t.Fatalf("resource-token is not a Token: %T", tokenItem.(structfields.Item).Value)
+		t.Fatalf("resource-token is not a String: %T", tokenItem.(structfields.Item).Value)
 	}
 
-	if tokenStr == "" || tokenStr == "TODO.Resource.Token" {
+	if tokenStr == "" || tokenStr == "dummy.token.sig" {
 		t.Fatalf("invalid or dummy token returned: %v", tokenStr)
 	}
 }

@@ -1,0 +1,40 @@
+# Minimal agentgateway config for testing AAuth ExtAuthZ integration.
+# Run with:  agentgateway -f demo/agentgateway-aauth.yaml
+#
+# Routes:
+#   /gemini  — AAuth-protected, extAuthz → localhost:7070
+#              Unsigned request  → 401 + AAuth-Requirement challenge header
+#              Signed request    → forwarded to Gemini (needs GEMINI_API_KEY env)
+#
+# Set GEMINI_API_KEY in your shell before starting agentgateway.
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - name: aauth-gemini
+      matches:
+      - path:
+          pathPrefix: /gemini
+      backends:
+      - ai:
+          name: gemini
+          provider:
+            gemini:
+              model: gemini-2.5-flash-lite
+      policies:
+        urlRewrite:
+          path:
+            prefix: ""
+        backendAuth:
+          key: ${GEMINI_API_KEY}
+        cors:
+          allowOrigins: ["*"]
+          allowHeaders: ["*"]
+          allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+          allowCredentials: false
+        extAuthz:
+          host: "localhost:7070"
+          protocol:
+            grpc:
+              context:
+                aauth_resource_id: "gemini-api"

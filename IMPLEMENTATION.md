@@ -1,255 +1,97 @@
-# OpenFGA Integration Implementation Summary
+# Implementation Notes
 
-## What Was Implemented
+## Deviations from the Plan (`aauth-extauthz-plan.md`)
 
-This document summarizes the OpenFGA integration that was added to the ext_authz policy engine.
+The plan was written before the AAuth spec draft was studied closely. Several things changed during implementation:
 
-### Files Created
+### Signature-Key header format
 
-1. **`config.go`** - Configuration management
-   - Loads OpenFGA settings from environment variables
-   - Required: `OPENFGA_STORE_ID`
-   - Optional: `OPENFGA_API_URL`, `OPENFGA_MODEL_ID`, `OPENFGA_RELATION`
-
-2. **`extractor.go`** - Principal and resource extraction
-   - `extractPrincipal()` - Extracts user from context_extensions or x-user header
-   - `extractResource()` - Extracts model name from OpenAI API request body JSON
-
-3. **`openfga_client.go`** - OpenFGA SDK wrapper
-   - `NewOpenFGAClient()` - Initializes OpenFGA client
-   - `Check()` - Performs authorization checks
-   - `BatchCheck()` - For future multi-resource checks
-   - `ListObjects()` - List accessible objects
-   - `ReadAuthorizationModel()` - For debugging
-
-4. **`.env.example`** - Environment variable template
-5. **`model.fga`** - Example OpenFGA authorization model
-
-### Files Modified
-
-1. **`main.go`**
-   - Updated `authorizationServer` to include OpenFGA client and config
-   - Changed `evaluatePolicy()` to use OpenFGA instead of hardcoded rules
-   - Updated `main()` to initialize OpenFGA client from config
-
-2. **`go.mod`**
-   - Added `github.com/openfga/go-sdk v0.7.3` dependency
-
-3. **`README.md`**
-   - Completely rewritten with OpenFGA setup instructions
-   - Added architecture diagram
-   - Added testing scenarios
-   - Added troubleshooting guide
-
-## How It Works
-
-### Request Flow
+The plan described the scheme as a `scheme=` parameter (e.g. `sig=?1;scheme="hwk";...`). The actual spec format is an RFC 8941 Dictionary where the **entry value is the scheme Token**:
 
 ```
-1. AgentGateway receives HTTP request with JWT
-2. AgentGateway calls ext_authz Check() via gRPC
-3. Policy engine extracts:
-   - Principal: user from context_extensions["user"] or x-user header
-   - Resource: model from request body JSON {"model": "..."}
-4. Policy engine calls OpenFGA Check API:
-   - User: user:{username}
-   - Relation: can_access (configurable)
-   - Object: model:{model_name}
-5. OpenFGA evaluates tuples and returns allowed: true/false
-6. Policy engine returns ALLOW (200) or DENY (403) to AgentGateway
-7. AgentGateway forwards or rejects the request
+# Spec-compliant (what this service parses)
+sig=hwk;kty="OKP";crv="Ed25519";x="..."
+sig=jwt;jwt="<token>"
+sig=jwks_uri;uri="https://...";keyid="kid"
+
+# Old format (no longer supported)
+sig=?1;scheme="hwk";kty="OKP";...
 ```
 
-### Principal Extraction (Current Implementation)
+### JWT typ values
 
-**Option 1: Context Extensions** (Recommended for testing)
-```yaml
-# In AgentGateway config:
-context:
-  user: "mcp-user"
-```
+| Purpose | Plan said | Spec / implementation |
+|---------|-----------|----------------------|
+| Agent token | `agent+jwt` | `aa-agent+jwt` |
+| Auth token | `auth+jwt` | `aa-auth+jwt` |
+| Resource token | `resource+jwt` | `aa-resource+jwt` |
 
-**Option 2: HTTP Header**
-```bash
-curl -H "x-user: mcp-user" ...
-```
+### `dwk` claim
 
-**Future Enhancement:** Extract from JWT claims in `metadataContext.filterMetadata["agentgateway.jwt.claims"].preferred_username`
-- Requires extended protobuf definition or custom metadata handling
-- Current proto doesn't include metadataContext field
+All AAuth JWT types carry a `dwk` claim naming the well-known document for JWKS discovery:
+- Agent tokens: `dwk = "aauth-agent.json"`
+- Auth tokens: `dwk = "aauth-access.json"` or `"aauth-person.json"`
+- Resource tokens: `dwk = "aauth-resource.json"` (auto-set by `MintResourceToken`)
 
-### Resource Extraction
+### JWKS discovery
 
-Parses OpenAI API request body:
-```json
-{
-  "model": "gpt-4",
-  "messages": [...]
-}
-```
+The plan used the config-specified `jwks_uri` for all key lookups. The `jwt` scheme now uses spec-defined discovery: `{iss}/.well-known/{dwk}`. The `jwks_uri` config field is still used for the `jwks_uri` Signature-Key scheme and is kept in the JWKS allowlist for backwards compatibility.
 
-Extracts `"model"` field → becomes `"model:gpt-4"` in OpenFGA
+### `act` claim (RFC 8693)
 
-## Configuration
+Auth tokens (`aa-auth+jwt`) must carry an `act` claim where `act.sub` equals the RFC 7638 JWK thumbprint of `cnf.jwk`. This is the spec's mechanism for binding the auth token to the agent that will use it.
 
-### Environment Variables
+### `jws.WithInferAlgorithmFromKey`
 
-```bash
-OPENFGA_API_URL=http://localhost:8080        # OpenFGA server URL
-OPENFGA_STORE_ID=01HQXYZ...                  # Required
-OPENFGA_MODEL_ID=01HQABC...                  # Optional (uses latest)
-OPENFGA_RELATION=can_access                  # Default relation to check
-```
+When verifying JWTs with `lestrrat-go/jwx/v2`, the `jws.WithInferAlgorithmFromKey(true)` option must be passed when the JWKS keys don't have an explicit `alg` field set.
 
-### AgentGateway Configuration
+### agentgateway Host header
 
-```yaml
-binds:
-  - port: 3001
-    listeners:
-      - routes:
-          - policies:
-              extAuthz:
-                host: "localhost:7070"
-                context:
-                  user: "mcp-user"           # User for authorization
-                  environment: "development"
-                  region: "us-west-1"
-```
+agentgateway strips the port before putting the `Host` value into the CheckRequest `host` field. A request to `http://host:3001/` arrives at the service as `host = "localhost"`, not `"localhost:3001"`. The resource config's `hosts` list must include the bare hostname and the signing client must use the bare hostname as `@authority`.
 
-## Example OpenFGA Setup
+## Package structure
 
-### 1. Authorization Model
+The protocol logic lives in a standalone library (`github.com/christian-posta/aauth-go`)
+with no gRPC or Envoy dependencies. This service is the ExtAuthZ integration layer on top of it.
 
 ```
-model
-  schema 1.1
+cmd/
+  server/           main entry point (gRPC + HTTP servers)
+  sign-request/     CLI tool: generates a signed curl command (hwk scheme)
+  debug-extauthz/   gRPC inspector: dumps every CheckRequest and returns OK
+  integration-test/ direct gRPC integration test
 
-type user
+internal/
+  aauth/            thin wrappers / adapters over the aauth-go library
+    verify.go       orchestrates sigkey parse + httpsig verify + token checks
+    tokens.go       ResourceTokenClaims struct + MintResourceToken
+    tokens_jwt.go   ParseAndVerifyAgentToken (aa-agent+jwt)
+    tokens_auth.go  ParseAndVerifyAuthToken  (aa-auth+jwt)
+    challenge.go    builds AAuth-Requirement 401 responses (returns pb.CheckResponse)
+    identity.go     Identity struct + ToUpstreamHeaders (returns pb.HeaderValueOption)
+    errors.go       sentinel error values
+  config/           YAML config types + LoadConfig
+  extauthz/         gRPC Check() handler + AAuthHandler
+  httpapi/          HTTP server (metadata, JWKS, resource-token endpoints)
+  jwksfetch/        JWKS HTTP client with URI allowlist + discovery URLs + Prometheus metrics
+  policy/           Engine interface + default allow-all implementation
+  resource/         Registry (ByID / ByHost) + key loading
 
-type model
-  relations
-    define owner: [user]
-    define can_access: [user] or owner
+pkg/
+  httpsig/          RFC 9421 — Sign + Verify; structfields sub-package
+  sigkey/           Signature-Key header parser (hwk / jwt / jwks_uri)
 ```
 
-### 2. Sample Tuples
+### What belongs in aauth-go vs here
 
-```bash
-# Grant user access to gpt-4
-fga tuple write user:mcp-user can_access model:gpt-4
-
-# Grant user access to gpt-3.5-turbo
-fga tuple write user:mcp-user can_access model:gpt-3.5-turbo
-
-# Grant ownership
-fga tuple write user:admin owner model:gpt-4-turbo
-```
-
-## Testing
-
-### Successful Authorization
-
-```bash
-# 1. Add tuple
-fga tuple write --store-id=<STORE_ID> \
-  user:mcp-user can_access model:gpt-4
-
-# 2. Make request
-curl -X POST http://localhost:3001/opa/openai/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "x-user: mcp-user" \
-  -d '{"model": "gpt-4", "messages": [...]}'
-
-# Expected: 200 OK, request forwarded
-```
-
-### Failed Authorization
-
-```bash
-# Make request for model without access
-curl -X POST http://localhost:3001/opa/openai/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "x-user: mcp-user" \
-  -d '{"model": "gpt-4-turbo", "messages": [...]}'
-
-# Expected: 403 Forbidden
-# Body: "Access Denied: User user:mcp-user does not have can_access permission for model:gpt-4-turbo"
-```
-
-## Known Limitations
-
-1. **JWT Claims Extraction**: Currently simplified to use context_extensions or headers
-   - Original plan was to extract from `metadataContext.filterMetadata`
-   - Current protobuf definition doesn't include this field
-   - Workaround: Pass user via context_extensions or x-user header
-   - Future: Need extended protobuf or custom metadata handling
-
-2. **Resource Extraction**: Only supports OpenAI API format
-   - Hardcoded to extract `model` field from JSON body
-   - Future: Support multiple API formats and resource types
-
-3. **No Caching**: Every request calls OpenFGA API
-   - Future: Add response caching with TTL
-
-4. **No Circuit Breaker**: If OpenFGA is down, all requests fail
-   - Current: Fail closed (deny all)
-   - Future: Add circuit breaker pattern
-
-## Future Enhancements
-
-1. **JWT Integration**: Full JWT claims extraction from metadataContext
-2. **Multiple Resource Types**: Support beyond just models (datasets, tools, etc.)
-3. **Caching**: Add TTL-based cache for OpenFGA responses
-4. **Circuit Breaker**: Graceful degradation when OpenFGA is unavailable
-5. **Metrics**: Prometheus metrics for latency, error rates, cache hits
-6. **Batch Operations**: Optimize multi-resource authorization checks
-7. **Contextual Tuples**: Support runtime tuples from request context
-8. **Audit Logging**: Centralized audit trail of all authorization decisions
-
-## Build and Run
-
-```bash
-# Build
-go build -o policy-engine main.go config.go extractor.go openfga_client.go
-
-# Run
-export OPENFGA_STORE_ID=<your-store-id>
-export OPENFGA_API_URL=http://localhost:8080
-./policy-engine
-
-# Or with custom port
-./policy-engine -port 9090
-```
-
-## Dependencies
-
-- `github.com/openfga/go-sdk v0.7.3` - OpenFGA Go SDK
-- `google.golang.org/grpc v1.64.0` - gRPC framework
-- `google.golang.org/protobuf v1.33.0` - Protocol Buffers
-
-## Architecture Decision Records
-
-### Why Option 1 (Full Replacement)?
-
-We chose to completely replace the hardcoded policy rules with OpenFGA for:
-- **Single Source of Truth**: All authorization logic in OpenFGA
-- **Flexibility**: Easy to update policies without code changes
-- **Auditability**: OpenFGA provides audit trail of authorization decisions
-- **Scalability**: Centralized authorization that can scale independently
-
-### Why Context Extensions for User?
-
-Initially planned to use JWT claims from metadataContext, but:
-- Current protobuf definition doesn't include metadataContext field
-- Would require updating proto file or custom handling
-- Context extensions provide a working solution for MVP
-- Can be enhanced later when proto is extended
-
-### Fail Closed vs Fail Open
-
-Chose fail closed (deny on error) because:
-- Security-first approach
-- Better to deny legitimate requests than allow unauthorized ones
-- Can add circuit breaker later for graceful degradation
-- Aligns with zero-trust security model
+| Concern | Library (`aauth-go`) | Service (this repo) |
+|---|---|---|
+| Signature verification | Yes | No |
+| JWT token validation | Yes | No |
+| Challenge response building | Yes (generic struct) | Adapts to pb.CheckResponse |
+| Identity extraction | Yes (`map[string]string`) | Adapts to pb.HeaderValueOption |
+| JWKS fetching | Yes (no metrics) | Wraps with Prometheus metrics |
+| Config | Library-own `Config` type | YAML + service-level fields |
+| gRPC / ExtAuthZ | No | Yes |
+| HTTP API (JWKS, metadata) | No | Yes |
+| Policy engine | No | Yes |

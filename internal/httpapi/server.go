@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -89,19 +91,21 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request, rc *config.R
 		return
 	}
 
-	// In a real implementation we would load the public key and return it
-	// For Phase 2 we just return a stub to pass tests
+	keyEntry := map[string]interface{}{
+		"kty": "OKP",
+		"crv": "Ed25519",
+		"kid": rc.SigningKey.Kid,
+		"alg": "EdDSA",
+		"use": "sig",
+	}
+
+	if rc.PrivateKey != nil {
+		pubKey := rc.PrivateKey.Public().(ed25519.PublicKey)
+		keyEntry["x"] = base64.RawURLEncoding.EncodeToString(pubKey)
+	}
+
 	jwks := map[string]interface{}{
-		"keys": []map[string]interface{}{
-			{
-				"kty": "OKP",
-				"crv": "Ed25519",
-				"kid": rc.SigningKey.Kid,
-				"alg": "EdDSA",
-				"use": "sig",
-				// "x": "..."
-			},
-		},
+		"keys": []map[string]interface{}{keyEntry},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -48,8 +48,8 @@ func TestMintResourceToken(t *testing.T) {
 		t.Fatalf("parseJWTUnverified failed: %v", err)
 	}
 
-	if header["typ"] != "resource+jwt" {
-		t.Errorf("expected typ=resource+jwt, got %v", header["typ"])
+	if header["typ"] != "aa-resource+jwt" {
+		t.Errorf("expected typ=aa-resource+jwt, got %v", header["typ"])
 	}
 	if header["kid"] != "test-kid-1" {
 		t.Errorf("expected kid=test-kid-1, got %v", header["kid"])
@@ -84,14 +84,26 @@ func TestExtractJWKThumbprint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// For now, we are just using the raw public key bytes encoded as base64
 	thumbprint, err := ExtractJWKThumbprint(pub)
 	if err != nil {
 		t.Fatalf("ExtractJWKThumbprint failed: %v", err)
 	}
 
-	expected := base64.RawURLEncoding.EncodeToString(pub)
-	if thumbprint != expected {
-		t.Errorf("expected thumbprint %s, got %s", expected, thumbprint)
+	// RFC 7638: SHA-256 of canonical JWK JSON, base64url without padding = 43 chars.
+	if len(thumbprint) != 43 {
+		t.Errorf("expected 43-char base64url thumbprint, got len=%d: %s", len(thumbprint), thumbprint)
+	}
+
+	// Must be stable — same key produces same thumbprint.
+	thumbprint2, _ := ExtractJWKThumbprint(pub)
+	if thumbprint != thumbprint2 {
+		t.Errorf("thumbprint not stable: %s != %s", thumbprint, thumbprint2)
+	}
+
+	// Must differ for different keys.
+	pub2, _, _ := ed25519.GenerateKey(rand.Reader)
+	thumbprint3, _ := ExtractJWKThumbprint(pub2)
+	if thumbprint == thumbprint3 {
+		t.Errorf("different keys produced same thumbprint")
 	}
 }

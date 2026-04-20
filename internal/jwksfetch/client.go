@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,9 +32,16 @@ func NewClient(cfg *config.Config) *DefaultClient {
 		rc := rcYAML.ToDomain()
 		for _, authServer := range rc.AuthServers {
 			allowList[authServer.JwksURI] = true
+			// Add AAuth spec discovery URLs: {iss}/.well-known/{dwk}
+			base := strings.TrimRight(authServer.Issuer, "/")
+			allowList[base+"/.well-known/aauth-access.json"] = true
+			allowList[base+"/.well-known/aauth-person.json"] = true
 		}
 		for _, agentServer := range rc.AgentServers {
 			allowList[agentServer.JwksURI] = true
+			// Add AAuth spec discovery URL: {iss}/.well-known/aauth-agent.json
+			base := strings.TrimRight(agentServer.Issuer, "/")
+			allowList[base+"/.well-known/aauth-agent.json"] = true
 		}
 	}
 
