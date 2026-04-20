@@ -185,7 +185,7 @@ curl -si -X GET 'http://localhost/' \
 Send to agentgateway on port 3001 (override the URL but keep the `Host: localhost` default):
 
 ```bash
-eval "$(./sign-request -method GET -authority localhost -path /)" \
+./sign-request -method GET -authority localhost -path / \
   | sed 's|http://localhost/|http://localhost:3001/|' \
   | bash
 ```
@@ -195,9 +195,9 @@ Or more explicitly:
 ```bash
 # Capture headers
 SIGNED=$(./sign-request -method GET -authority localhost -path /)
-SK=$(echo "$SIGNED" | grep "signature-key:"  | sed "s/.*signature-key: '//;s/'.*//")
-SI=$(echo "$SIGNED" | grep "signature-input:" | sed "s/.*signature-input: '//;s/'.*//")
-SG=$(echo "$SIGNED" | grep "^  -H 'signature: " | sed "s/.*signature: '//;s/'.*//")
+SK=$(echo "$SIGNED" | grep "signature-key:"  | sed "s/.*'signature-key: //;s/'.*//")
+SI=$(echo "$SIGNED" | grep "signature-input:" | sed "s/.*'signature-input: //;s/'.*//")
+SG=$(echo "$SIGNED" | grep "^  -H 'signature: " | sed "s/.*'signature: //;s/'.*//")
 
 curl -i http://localhost:3001/ \
   -H "Host: localhost" \
