@@ -19,6 +19,7 @@ type ResourceConfig struct {
 	AuthorizationEndpoint         string
 	AllowPseudonymous             bool
 	StripSignatureHeaders         bool
+	AuthorityOverride             string
 	AuthServers                   []AuthServer
 	AgentServers                  []AgentServer
 	Policy                        PolicyConfig

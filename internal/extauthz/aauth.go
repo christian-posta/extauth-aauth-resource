@@ -40,6 +40,9 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 
 	method := httpReq.GetMethod()
 	authority := httpReq.GetHost()
+	if rc.AuthorityOverride != "" {
+		authority = rc.AuthorityOverride
+	}
 	path := httpReq.GetPath()
 
 	// Convert ExtAuthZ headers to standard map

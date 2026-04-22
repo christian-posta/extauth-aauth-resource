@@ -40,6 +40,7 @@ type ResourceConfigYAML struct {
 	AuthorizationEndpoint         string            `yaml:"authorization_endpoint"`
 	AllowPseudonymous             bool              `yaml:"allow_pseudonymous"`
 	StripSignatureHeaders         bool              `yaml:"strip_signature_headers"`
+	AuthorityOverride             string            `yaml:"authority_override"`
 	AuthServers                   []AuthServerYAML  `yaml:"auth_servers"`
 	AgentServers                  []AgentServerYAML `yaml:"agent_servers"`
 	Policy                        PolicyConfigYAML  `yaml:"policy"`
@@ -110,6 +111,7 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 		AuthorizationEndpoint:         c.AuthorizationEndpoint,
 		AllowPseudonymous:             c.AllowPseudonymous,
 		StripSignatureHeaders:         c.StripSignatureHeaders,
+		AuthorityOverride:             c.AuthorityOverride,
 		AuthServers:                   authServers,
 		AgentServers:                  agentServers,
 		Policy:                        PolicyConfig{Name: c.Policy.Name},
