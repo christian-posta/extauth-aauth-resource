@@ -48,7 +48,10 @@ func main() {
 	s := grpc.NewServer()
 
 	// Start HTTP Server
-	httpAddr := ":8080"
+	httpAddr := cfg.Listen.HTTP
+	if httpAddr == "" {
+		httpAddr = ":8080"
+	}
 
 	reg, err := resource.NewRegistry(cfg)
 	if err != nil {

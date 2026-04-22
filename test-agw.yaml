@@ -5,7 +5,7 @@ binds:
     - policies:
         extAuthz:
           host: "localhost:7070"
-          contextExtensions:
+          context_extensions:
             aauth_resource_id: "mcp-api"
       backends:
       - mcp:
