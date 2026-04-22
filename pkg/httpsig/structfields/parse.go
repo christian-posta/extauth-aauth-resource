@@ -353,7 +353,15 @@ func (sc *scanner) parseByteSequence() ([]byte, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid base64: %v", ErrInvalidFormat, err)
+		// Fallback to base64url without padding (common client error)
+		decoded, err = base64.RawURLEncoding.DecodeString(b64)
+		if err != nil {
+			// Fallback to base64url with padding
+			decoded, err = base64.URLEncoding.DecodeString(b64)
+			if err != nil {
+				return nil, fmt.Errorf("%w: invalid base64: %v", ErrInvalidFormat, err)
+			}
+		}
 	}
 	return decoded, nil
 }

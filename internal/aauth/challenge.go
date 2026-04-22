@@ -109,6 +109,19 @@ func (c *Challenge) Response() *pb.CheckResponse {
 		},
 	}
 
+	if sigErrHeader, ok := c.signatureErrorHeader(); ok {
+		headers = append(headers, &pb.HeaderValueOption{
+			Header: &pb.HeaderValue{Key: "Signature-Error", Value: sigErrHeader},
+			Append: &wrapperspb.BoolValue{Value: false},
+		})
+	}
+	if acceptSigHeader, ok := c.acceptSignatureHeader(); ok {
+		headers = append(headers, &pb.HeaderValueOption{
+			Header: &pb.HeaderValue{Key: "Accept-Signature", Value: acceptSigHeader},
+			Append: &wrapperspb.BoolValue{Value: false},
+		})
+	}
+
 	return &pb.CheckResponse{
 		Status: &pb.Status{Code: 16}, // UNAUTHENTICATED
 		HttpResponse: &pb.CheckResponse_DeniedResponse{
@@ -119,4 +132,140 @@ func (c *Challenge) Response() *pb.CheckResponse {
 			},
 		},
 	}
+}
+
+func (c *Challenge) signatureErrorHeader() (string, bool) {
+	if c.Err == nil {
+		return "", false
+	}
+
+	dict := structfields.Dictionary{}
+
+	switch c.Err {
+	case ErrMissingSignature, ErrInvalidSignature:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_signature")},
+		})
+	case ErrInvalidInput:
+		items := []structfields.Item{
+			{Value: "@method"},
+			{Value: "@authority"},
+			{Value: "@path"},
+			{Value: "signature-key"},
+		}
+		for _, comp := range c.Resource.AdditionalSignatureComponents {
+			items = append(items, structfields.Item{Value: comp})
+		}
+		dict = append(dict,
+			structfields.DictMember{
+				Name:  "error",
+				Value: structfields.Item{Value: structfields.Token("invalid_input")},
+			},
+			structfields.DictMember{
+				Name:  "required_input",
+				Value: structfields.InnerList{Items: items},
+			},
+		)
+	case ErrUnsupportedAlgorithm:
+		dict = append(dict,
+			structfields.DictMember{
+				Name:  "error",
+				Value: structfields.Item{Value: structfields.Token("unsupported_algorithm")},
+			},
+			structfields.DictMember{
+				Name: "supported_algorithms",
+				Value: structfields.InnerList{Items: []structfields.Item{
+					{Value: "ed25519"},
+				}},
+			},
+		)
+	case ErrInvalidKey:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_key")},
+		})
+	case ErrUnknownKey:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("unknown_key")},
+		})
+	case ErrInvalidJWT:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_jwt")},
+		})
+	case ErrExpiredJWT:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("expired_jwt")},
+		})
+	case ErrUnsupportedScheme:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_key")},
+		})
+	default:
+		return "", false
+	}
+
+	s, err := structfields.SerializeDictionary(dict)
+	if err != nil {
+		return "", false
+	}
+	return s, true
+}
+
+func (c *Challenge) acceptSignatureHeader() (string, bool) {
+	if c.Err == nil {
+		return "", false
+	}
+	if _, ok := c.signatureErrorHeader(); !ok {
+		return "", false
+	}
+
+	baseItems := []structfields.Item{
+		{Value: "@method"},
+		{Value: "@authority"},
+		{Value: "@path"},
+	}
+	for _, comp := range c.Resource.AdditionalSignatureComponents {
+		if comp != "signature-key" {
+			baseItems = append(baseItems, structfields.Item{Value: comp})
+		}
+	}
+
+	dict := structfields.Dictionary{}
+	if c.Resource.AllowPseudonymous {
+		dict = append(dict, structfields.DictMember{
+			Name: "sig1",
+			Value: structfields.InnerList{
+				Items: baseItems,
+				Params: structfields.Params{
+					{Name: "sigkey", Value: structfields.Token("jkt")},
+				},
+			},
+		})
+	}
+	if len(c.Resource.AgentServers) > 0 || len(c.Resource.AuthServers) > 0 {
+		dict = append(dict, structfields.DictMember{
+			Name: "sig2",
+			Value: structfields.InnerList{
+				Items: baseItems,
+				Params: structfields.Params{
+					{Name: "sigkey", Value: structfields.Token("uri")},
+				},
+			},
+		})
+	}
+
+	if len(dict) == 0 {
+		return "", false
+	}
+
+	s, err := structfields.SerializeDictionary(dict)
+	if err != nil {
+		return "", false
+	}
+	return s, true
 }

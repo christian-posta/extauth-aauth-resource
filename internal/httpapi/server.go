@@ -24,6 +24,8 @@ type Server struct {
 
 type jwksFetcher interface {
 	Get(ctx context.Context, uri string) (jwk.Set, error)
+	GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error)
+	Invalidate(uri string)
 }
 
 func NewServer(registry *resource.Registry, jwksClient jwksFetcher, engine policy.Engine) *Server {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pb "policy_engine/gen/proto"
+	"policy_engine/internal/aauth"
 	"policy_engine/internal/config"
 	"policy_engine/internal/extauthz"
 	"policy_engine/pkg/httpsig"
@@ -58,17 +59,30 @@ func TestHandler(t *testing.T) {
 		t.Errorf("expected 401, got %v", resp.Status.Code)
 	}
 
-	// Verify AAuth-Requirement header is present
+	// Verify AAuth-Requirement plus signature guidance headers are present
 	denied := resp.HttpResponse.(*pb.CheckResponse_DeniedResponse).DeniedResponse
 	found := false
+	foundSigErr := false
+	foundAcceptSig := false
 	for _, hdr := range denied.Headers {
 		if hdr.Header.Key == "AAuth-Requirement" {
 			found = true
-			break
+		}
+		if hdr.Header.Key == "Signature-Error" {
+			foundSigErr = true
+		}
+		if hdr.Header.Key == "Accept-Signature" {
+			foundAcceptSig = true
 		}
 	}
 	if !found {
 		t.Errorf("expected AAuth-Requirement header")
+	}
+	if !foundSigErr {
+		t.Errorf("expected Signature-Error header")
+	}
+	if !foundAcceptSig {
+		t.Errorf("expected Accept-Signature header")
 	}
 
 	// 2. Signed request (HWK)
@@ -140,5 +154,108 @@ func TestHandler(t *testing.T) {
 	}
 	if !foundLevel {
 		t.Errorf("expected x-aauth-level header")
+	}
+}
+
+func TestHandlerReturnsInvalidInputForMissingSignatureKeyCoverage(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{}
+	cfg.Resources = []config.ResourceConfigYAML{
+		{
+			ID:                "res-coverage",
+			Issuer:            "https://res.example.com",
+			Hosts:             []string{"res.example.com"},
+			AllowPseudonymous: true,
+			SignatureWindow:   60 * time.Second,
+		},
+	}
+
+	h, err := extauthz.NewHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sigKeyVal := `sig=hwk;kty="OKP";crv="Ed25519";x="` + base64.RawURLEncoding.EncodeToString(pub) + `"`
+	headers := map[string][]string{
+		"signature-key": {sigKeyVal},
+	}
+
+	now := time.Now().Unix()
+	params := structfields.Params{
+		{Name: "created", Value: now},
+		{Name: "alg", Value: "ed25519"},
+	}
+
+	signInput := httpsig.SignInput{
+		Method:     "GET",
+		Authority:  "res.example.com",
+		Path:       "/api",
+		Headers:    headers,
+		Label:      "sig",
+		Components: []string{"@method", "@authority", "@path"},
+		Params:     params,
+		PrivateKey: priv,
+		Alg:        "ed25519",
+	}
+
+	sigBytes, sigInputStr, err := httpsig.Sign(signInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := &pb.CheckRequest{
+		Attributes: &pb.AttributeContext{
+			ContextExtensions: map[string]string{
+				"aauth_resource_id": "res-coverage",
+			},
+			Request: &pb.AttributeContext_Request{
+				Http: &pb.AttributeContext_HttpRequest{
+					Method: "GET",
+					Host:   "res.example.com",
+					Path:   "/api",
+					Headers: map[string]string{
+						"signature-key":   sigKeyVal,
+						"signature-input": sigInputStr,
+						"signature":       `sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`,
+					},
+				},
+			},
+		},
+	}
+
+	resp, _ := h.Check(context.Background(), req)
+	if resp.Status.Code != 16 {
+		t.Fatalf("expected UNAUTHENTICATED, got %v", resp.Status.Code)
+	}
+
+	denied := resp.HttpResponse.(*pb.CheckResponse_DeniedResponse).DeniedResponse
+	var signatureError string
+	for _, hdr := range denied.Headers {
+		if hdr.Header.Key == "Signature-Error" {
+			signatureError = hdr.Header.Value
+			break
+		}
+	}
+	if signatureError == "" {
+		t.Fatal("expected Signature-Error header")
+	}
+
+	dict, err := structfields.ParseDictionary(signatureError)
+	if err != nil {
+		t.Fatalf("failed to parse Signature-Error: %v", err)
+	}
+	errItem, ok := dict.Get("error")
+	if !ok {
+		t.Fatal("expected error member in Signature-Error")
+	}
+	if got := errItem.(structfields.Item).Value.(structfields.Token); got != structfields.Token(aauth.ErrInvalidInput.Error()) {
+		t.Fatalf("expected invalid_input, got %s", got)
+	}
+	if _, ok := dict.Get("required_input"); !ok {
+		t.Fatal("expected required_input in Signature-Error")
 	}
 }

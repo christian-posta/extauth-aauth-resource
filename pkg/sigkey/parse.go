@@ -24,7 +24,7 @@ var (
 // Examples (per spec):
 //
 //	Signature-Key: sig=jwt; jwt="eyJhbGc..."
-//	Signature-Key: sig=jwks_uri; jwks_uri="https://..."
+//	Signature-Key: sig=jwks_uri;id="https://client.example";dwk="aauth-agent.json";kid="key-1"
 //
 // The "hwk" scheme is a non-standard extension for pseudonymous inline keys:
 //
@@ -57,18 +57,18 @@ func Parse(headerValue string) (Parsed, error) {
 		Scheme: Scheme(scheme),
 	}
 
-	if keyidParam, ok := params.Get("keyid"); ok {
-		if kidStr, ok := keyidParam.(string); ok {
+	if kidParam, ok := params.Get("kid"); ok {
+		if kidStr, ok := kidParam.(string); ok {
 			parsed.KeyID = kidStr
 		}
 	}
 
 	switch parsed.Scheme {
 	case SchemeHWK:
-		// Non-standard pseudonymous extension. All params (except keyid) are JWK fields.
+		// Non-standard pseudonymous extension. All params (except kid) are JWK fields.
 		parsed.HWK = make(map[string]interface{})
 		for _, p := range params {
-			if p.Name != "keyid" {
+			if p.Name != "kid" {
 				parsed.HWK[p.Name] = p.Value
 			}
 		}
@@ -85,15 +85,27 @@ func Parse(headerValue string) (Parsed, error) {
 		parsed.JWT = jwtStr
 
 	case SchemeJWKSURI:
-		uriParam, ok := params.Get("uri")
+		idParam, ok := params.Get("id")
 		if !ok {
-			return Parsed{}, fmt.Errorf("%w: missing 'uri' parameter for jwks_uri scheme", ErrInvalidHeader)
+			return Parsed{}, fmt.Errorf("%w: missing 'id' parameter for jwks_uri scheme", ErrInvalidHeader)
 		}
-		uriStr, ok := uriParam.(string)
+		idStr, ok := idParam.(string)
 		if !ok {
-			return Parsed{}, fmt.Errorf("%w: 'uri' parameter must be a string", ErrInvalidHeader)
+			return Parsed{}, fmt.Errorf("%w: 'id' parameter must be a string", ErrInvalidHeader)
 		}
-		parsed.JWKSURI = uriStr
+		dwkParam, ok := params.Get("dwk")
+		if !ok {
+			return Parsed{}, fmt.Errorf("%w: missing 'dwk' parameter for jwks_uri scheme", ErrInvalidHeader)
+		}
+		dwkStr, ok := dwkParam.(string)
+		if !ok {
+			return Parsed{}, fmt.Errorf("%w: 'dwk' parameter must be a string", ErrInvalidHeader)
+		}
+		if parsed.KeyID == "" {
+			return Parsed{}, fmt.Errorf("%w: missing 'kid' parameter for jwks_uri scheme", ErrInvalidHeader)
+		}
+		parsed.ID = idStr
+		parsed.DWK = dwkStr
 
 	case SchemeX509:
 		return Parsed{}, ErrUnsupportedScheme

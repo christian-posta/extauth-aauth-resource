@@ -40,3 +40,8 @@ go.work.sum
 
 # generated curl scripts
 curl_cmd.sh
+
+# IDE and tool directories
+.gocache/
+.cursor/
+.claude/

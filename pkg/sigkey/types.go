@@ -13,7 +13,7 @@ const (
 // Parsed contains the extracted material from the Signature-Key header.
 type Parsed struct {
 	Scheme Scheme
-	KeyID  string // keyid= param when present
+	KeyID  string // kid= param when present
 
 	// HWK: inline JWK components
 	// We map the raw params directly to a map. The caller converts it to a crypto.PublicKey.
@@ -22,8 +22,9 @@ type Parsed struct {
 	// JWT: the JWT string; caller must verify before trusting `cnf.jwk`
 	JWT string
 
-	// JWKS URI
-	JWKSURI string
+	// JWKS URI discovery inputs
+	ID  string
+	DWK string
 
 	// X509: raw cert bytes, not yet used
 	X509 []byte

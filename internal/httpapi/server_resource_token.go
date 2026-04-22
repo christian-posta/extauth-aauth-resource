@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	pb "policy_engine/gen/proto"
 	"policy_engine/internal/aauth"
 	"policy_engine/internal/config"
+	"policy_engine/internal/logging"
 	"policy_engine/internal/policy"
 )
 
@@ -39,6 +41,15 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 
 	res := aauth.Verify(rc, r.Method, r.Host, path, lowerHeaders, s.jwksClient)
 	if res.Err != nil {
+		if res.Diagnostics != nil {
+			log.Printf("resource_token verify failed resource=%s method=%s host=%s path=%s scheme=%s stage=%s error=%s detail=%q",
+				rc.ID, r.Method, r.Host, path, res.Diagnostics.Scheme, res.Diagnostics.Stage, res.Err.Error(), res.Diagnostics.Detail)
+		} else {
+			log.Printf("resource_token verify failed resource=%s method=%s host=%s path=%s error=%s",
+				rc.ID, r.Method, r.Host, path, res.Err.Error())
+		}
+		log.Printf("resource_token failure headers resource=%s method=%s host=%s path=%s snapshot=%s",
+			rc.ID, r.Method, r.Host, path, logging.FormatRelevantHeaders(lowerHeaders))
 		s.writeChallenge(w, rc, res.Err, res.Identity)
 		return
 	}

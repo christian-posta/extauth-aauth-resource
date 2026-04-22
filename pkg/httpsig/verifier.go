@@ -196,9 +196,12 @@ func Verify(in VerifyInput) (*VerifyResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signature base: %w", err)
 	}
+	
+	fmt.Printf("DEBUG: built signature base:\n%s\n", base)
 
 	// 9. Verify
 	if err := VerifySignature(in.PublicKey, []byte(base), sigBytes, alg); err != nil {
+		fmt.Printf("DEBUG: verify signature failed: %v\n", err)
 		return nil, err
 	}
 

@@ -2,6 +2,7 @@ package jwksfetch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 type Client interface {
 	Get(ctx context.Context, uri string) (jwk.Set, error)
+	GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error)
 	Invalidate(uri string)
 }
 
@@ -65,15 +67,6 @@ func NewClient(cfg *config.Config) *DefaultClient {
 }
 
 func (c *DefaultClient) Get(ctx context.Context, uri string) (jwk.Set, error) {
-	c.mu.RLock()
-	allowed := c.allowList[uri]
-	c.mu.RUnlock()
-
-	if !allowed {
-		metrics.JwksFetchTotal.WithLabelValues(uri, "denied").Inc()
-		return nil, fmt.Errorf("JWKS URI not in allowlist: %s", uri)
-	}
-
 	c.cache.Register(uri, jwk.WithMinRefreshInterval(c.successTTL))
 
 	set, err := c.cache.Get(ctx, uri)
@@ -86,14 +79,29 @@ func (c *DefaultClient) Get(ctx context.Context, uri string) (jwk.Set, error) {
 	return set, nil
 }
 
-func (c *DefaultClient) Invalidate(uri string) {
-	c.mu.RLock()
-	allowed := c.allowList[uri]
-	c.mu.RUnlock()
-
-	if !allowed {
-		return
+func (c *DefaultClient) GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, uri, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build metadata request: %w", err)
 	}
 
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch metadata: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("metadata fetch returned status %d", resp.StatusCode)
+	}
+
+	var metadata map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
+		return nil, fmt.Errorf("failed to decode metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func (c *DefaultClient) Invalidate(uri string) {
 	_, _ = c.cache.Refresh(context.Background(), uri)
 }

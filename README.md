@@ -327,7 +327,7 @@ The `Signature-Key` header follows the AAuth spec (RFC 8941 Dictionary where the
 |--------|--------|-------------|
 | `hwk` | `sig=hwk;kty="OKP";crv="Ed25519";x="<base64url>"` | Pseudonymous bare key |
 | `jwt` | `sig=jwt;jwt="<aa-agent+jwt or aa-auth+jwt>"` | Agent token or auth token |
-| `jwks_uri` | `sig=jwks_uri;uri="<url>";keyid="<kid>"` | Agent server JWKS lookup |
+| `jwks_uri` | `sig=jwks_uri;id="<issuer>";dwk="<well-known-doc>";kid="<kid>"` | Agent server metadata discovery + JWKS lookup |
 
 > **Old format** (`sig=?1;scheme="hwk";...`) is no longer supported — the scheme is the dict entry value, not a `scheme=` parameter.
 

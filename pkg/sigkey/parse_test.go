@@ -25,7 +25,7 @@ func TestParseHWK(t *testing.T) {
 }
 
 func TestParseJWT(t *testing.T) {
-	input := `sig=jwt;jwt="eyJ0eXAi...";keyid="foo"`
+	input := `sig=jwt;jwt="eyJ0eXAi..."`
 	parsed, err := Parse(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -37,13 +37,10 @@ func TestParseJWT(t *testing.T) {
 	if parsed.JWT != "eyJ0eXAi..." {
 		t.Errorf("expected jwt string, got %v", parsed.JWT)
 	}
-	if parsed.KeyID != "foo" {
-		t.Errorf("expected keyid=foo, got %v", parsed.KeyID)
-	}
 }
 
 func TestParseJWKSURI(t *testing.T) {
-	input := `sig=jwks_uri;uri="https://example.com/jwks.json"`
+	input := `sig=jwks_uri;id="https://example.com";dwk="aauth-agent.json";kid="key-1"`
 	parsed, err := Parse(input)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -52,8 +49,14 @@ func TestParseJWKSURI(t *testing.T) {
 	if parsed.Scheme != SchemeJWKSURI {
 		t.Errorf("expected jwks_uri, got %v", parsed.Scheme)
 	}
-	if parsed.JWKSURI != "https://example.com/jwks.json" {
-		t.Errorf("expected uri, got %v", parsed.JWKSURI)
+	if parsed.ID != "https://example.com" {
+		t.Errorf("expected id, got %v", parsed.ID)
+	}
+	if parsed.DWK != "aauth-agent.json" {
+		t.Errorf("expected dwk, got %v", parsed.DWK)
+	}
+	if parsed.KeyID != "key-1" {
+		t.Errorf("expected kid, got %v", parsed.KeyID)
 	}
 }
 

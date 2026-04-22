@@ -2,6 +2,7 @@ package extauthz
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -17,6 +18,8 @@ import (
 
 type jwksFetcher interface {
 	Get(ctx context.Context, uri string) (jwk.Set, error)
+	GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error)
+	Invalidate(uri string)
 }
 
 type AAuthHandler struct {
@@ -54,6 +57,11 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 	}
 
 	if res.Err != nil {
+		reason := res.Err.Error()
+		if res.Diagnostics != nil {
+			reason = fmt.Sprintf("%s stage=%s scheme=%s detail=%q", reason, res.Diagnostics.Stage, res.Diagnostics.Scheme, res.Diagnostics.Detail)
+		}
+
 		metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "error").Inc()
 		metrics.CheckLatency.WithLabelValues(rc.ID, "error").Observe(time.Since(start).Seconds())
 
@@ -61,9 +69,11 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			ResourceID: rc.ID,
 			Level:      levelStr,
 			Result:     "error",
-			Reason:     res.Err.Error(),
+			Reason:     reason,
 			LatencyMs:  time.Since(start).Milliseconds(),
 		})
+		log.Printf("AAuth verification failed resource=%s method=%s host=%s path=%s level=%s error=%s", rc.ID, method, authority, path, levelStr, reason)
+		log.Printf("AAuth failure headers resource=%s method=%s host=%s path=%s snapshot=%s", rc.ID, method, authority, path, logging.FormatRelevantHeaders(headers))
 
 		var hint *aauth.AgentHint
 		if res.Identity.Level != "" {

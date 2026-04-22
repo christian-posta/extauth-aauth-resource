@@ -22,7 +22,7 @@ type AgentTokenClaims struct {
 	CnfJWK string `json:"-"` // RFC 7638 thumbprint of cnf.jwk
 }
 
-func ParseAndVerifyAgentToken(token string, set jwk.Set) (*AgentTokenClaims, error) {
+func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string) (*AgentTokenClaims, error) {
 	// 1. Decode header without verifying to check typ first.
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -89,7 +89,12 @@ func ParseAndVerifyAgentToken(token string, set jwk.Set) (*AgentTokenClaims, err
 		return nil, ErrExpiredJWT
 	}
 
-	// 8. Extract RFC 7638 thumbprint from cnf.jwk.
+	// 8. Validate audience.
+	if claims.Aud != expectedAud {
+		return nil, fmt.Errorf("%w: audience mismatch: got %s, expected %s", ErrInvalidToken, claims.Aud, expectedAud)
+	}
+
+	// 9. Extract RFC 7638 thumbprint from cnf.jwk.
 	if cnf, ok := claimsMap["cnf"].(map[string]interface{}); ok {
 		if jwkMap, ok := cnf["jwk"].(map[string]interface{}); ok {
 			b, err := json.Marshal(jwkMap)

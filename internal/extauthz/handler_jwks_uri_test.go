@@ -27,7 +27,10 @@ func TestHandlerJwksURI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 2. Setup mock JWKS client
+	// 2. Setup mock discovery metadata + JWKS
+	agentID := "https://agents.example.com"
+	dwk := "aauth-agent.json"
+	discoveryURL := agentID + "/.well-known/" + dwk
 	jwksURI := "https://agents.example.com/jwks.json"
 
 	agentServerKey, err := jwk.FromRaw(agentServerPub)
@@ -39,6 +42,9 @@ func TestHandlerJwksURI(t *testing.T) {
 	mockJwks := jwksfetch.NewMockClient()
 	set := jwk.NewSet()
 	set.AddKey(agentServerKey)
+	mockJwks.Metadata[discoveryURL] = map[string]interface{}{
+		"jwks_uri": jwksURI,
+	}
 	mockJwks.Keysets[jwksURI] = set
 
 	// 3. Setup Config and Handler
@@ -49,7 +55,7 @@ func TestHandlerJwksURI(t *testing.T) {
 			Issuer: "https://res.example.com",
 			Hosts:  []string{"res.example.com"},
 			AgentServers: []config.AgentServerYAML{
-				{Issuer: "https://agents.example.com", JwksURI: jwksURI},
+				{Issuer: agentID, JwksURI: jwksURI},
 			},
 			SignatureWindow: 60 * time.Second,
 		},
@@ -62,7 +68,7 @@ func TestHandlerJwksURI(t *testing.T) {
 	h := extauthz.NewTestHandler(reg, aauthHandler)
 
 	// 4. Build Signature-Key header (jwks_uri scheme)
-	sigKeyVal := `sig=jwks_uri;uri="` + jwksURI + `";keyid="as-key-1"`
+	sigKeyVal := `sig=jwks_uri;id="` + agentID + `";dwk="` + dwk + `";kid="as-key-1"`
 
 	// 5. Build HTTP Signature
 	headers := map[string][]string{
