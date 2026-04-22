@@ -2,7 +2,7 @@ package aauth
 
 import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	pb "policy_engine/gen/proto"
+	pb "aauth-service/gen/proto"
 )
 
 type Level string

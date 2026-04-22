@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func TestEndToEndSignAndVerify(t *testing.T) {

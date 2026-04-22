@@ -11,13 +11,13 @@ import (
 
 	"google.golang.org/grpc"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/config"
-	"policy_engine/internal/extauthz"
-	"policy_engine/internal/httpapi"
-	"policy_engine/internal/jwksfetch"
-	"policy_engine/internal/policy"
-	"policy_engine/internal/resource"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/config"
+	"aauth-service/internal/extauthz"
+	"aauth-service/internal/httpapi"
+	"aauth-service/internal/jwksfetch"
+	"aauth-service/internal/policy"
+	"aauth-service/internal/resource"
 )
 
 var (

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"policy_engine/internal/config"
+	"aauth-service/internal/config"
 )
 
 func TestMintResourceToken(t *testing.T) {

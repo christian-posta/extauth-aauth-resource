@@ -10,10 +10,10 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"policy_engine/internal/config"
-	"policy_engine/internal/jwksfetch"
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/internal/config"
+	"aauth-service/internal/jwksfetch"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func TestVerifyRejectsNonHTTPSJWKSURI(t *testing.T) {

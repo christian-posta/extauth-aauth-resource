@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 var (

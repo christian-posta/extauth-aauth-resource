@@ -37,9 +37,13 @@ The following walks through running the service locally with agentgateway.
 ```bash
 # Build the AAuth service
 go build -o aauth-service ./cmd/server
+# Or via Makefile:
+make build
 
 # Build the signing helper (used in tests below)
 go build -o sign-request ./cmd/sign-request
+# Or via Makefile:
+make build-sign-request
 ```
 
 ---
@@ -49,7 +53,9 @@ go build -o sign-request ./cmd/sign-request
 The service signs resource-tokens with an Ed25519 key. Generate one:
 
 ```bash
-go run ./generate_key.go
+go run ./cmd/generate-key
+# Or via Makefile:
+make generate-key
 # Creates: resource_key.pem  (private key, PKCS8 PEM)
 #          resource_pub.pem  (public key, PKIX PEM)
 ```
@@ -385,7 +391,7 @@ Structured JSON decision log on stdout for every check:
 
 | Tool | Purpose |
 |------|---------|
-| `go run ./generate_key.go` | Generate an Ed25519 keypair as PEM files |
-| `go run ./cmd/sign-request` | Generate a signed `curl` command for testing |
+| `go run ./cmd/generate-key` or `make generate-key` | Generate an Ed25519 keypair as PEM files |
+| `go run ./cmd/sign-request` or `make build-sign-request` | Generate a signed `curl` command for testing |
 | `go run ./cmd/debug-extauthz` | gRPC inspector that dumps every CheckRequest (listens on `:7071`) |
 | `go run ./cmd/integration-test` | Direct gRPC integration test against a running service |

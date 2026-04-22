@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"policy_engine/internal/config"
-	"policy_engine/internal/httpapi"
-	"policy_engine/internal/jwksfetch"
-	"policy_engine/internal/policy"
-	"policy_engine/internal/resource"
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/internal/config"
+	"aauth-service/internal/httpapi"
+	"aauth-service/internal/jwksfetch"
+	"aauth-service/internal/policy"
+	"aauth-service/internal/resource"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func TestHandleResourceToken(t *testing.T) {

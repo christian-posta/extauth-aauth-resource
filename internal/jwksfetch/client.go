@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
-	"policy_engine/internal/config"
-	"policy_engine/internal/metrics"
+	"aauth-service/internal/config"
+	"aauth-service/internal/metrics"
 )
 
 type Client interface {

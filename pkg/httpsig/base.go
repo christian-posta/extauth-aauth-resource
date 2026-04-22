@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 // ComponentResolver extracts the value of a signature component from the request.

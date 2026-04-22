@@ -6,9 +6,9 @@ import (
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/config"
-	"policy_engine/pkg/httpsig/structfields"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/config"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 // AgentHint carries enough information about the presenting agent to allow the

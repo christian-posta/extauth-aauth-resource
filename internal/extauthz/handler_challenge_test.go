@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/config"
-	"policy_engine/internal/extauthz"
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/httpsig/structfields"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/config"
+	"aauth-service/internal/extauthz"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func TestHandlerChallengeWithToken(t *testing.T) {

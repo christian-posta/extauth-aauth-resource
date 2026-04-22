@@ -12,7 +12,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"policy_engine/internal/config"
+	"aauth-service/internal/config"
 )
 
 type ResourceTokenClaims struct {

@@ -11,9 +11,9 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"policy_engine/internal/config"
-	"policy_engine/internal/policy"
-	"policy_engine/internal/resource"
+	"aauth-service/internal/config"
+	"aauth-service/internal/policy"
+	"aauth-service/internal/resource"
 )
 
 type Server struct {

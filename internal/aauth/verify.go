@@ -12,9 +12,9 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"policy_engine/internal/config"
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/sigkey"
+	"aauth-service/internal/config"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/sigkey"
 )
 
 type jwksFetcher interface {

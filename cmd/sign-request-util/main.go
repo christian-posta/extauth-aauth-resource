@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/httpsig/structfields"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func main() {

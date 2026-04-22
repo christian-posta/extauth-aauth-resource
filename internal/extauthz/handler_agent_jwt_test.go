@@ -12,14 +12,14 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/config"
-	"policy_engine/internal/extauthz"
-	"policy_engine/internal/jwksfetch"
-	"policy_engine/internal/policy"
-	"policy_engine/internal/resource"
-	"policy_engine/pkg/httpsig"
-	"policy_engine/pkg/httpsig/structfields"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/config"
+	"aauth-service/internal/extauthz"
+	"aauth-service/internal/jwksfetch"
+	"aauth-service/internal/policy"
+	"aauth-service/internal/resource"
+	"aauth-service/pkg/httpsig"
+	"aauth-service/pkg/httpsig/structfields"
 )
 
 func TestHandlerAgentJWT(t *testing.T) {

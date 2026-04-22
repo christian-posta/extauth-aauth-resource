@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/aauth"
-	"policy_engine/internal/config"
-	"policy_engine/internal/logging"
-	"policy_engine/internal/policy"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/aauth"
+	"aauth-service/internal/config"
+	"aauth-service/internal/logging"
+	"aauth-service/internal/policy"
 )
 
 func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc *config.ResourceConfig) {

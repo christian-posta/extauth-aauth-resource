@@ -1,13 +1,15 @@
-.PHONY: help build run clean generate deps
+.PHONY: help build build-sign-request generate-key run clean generate deps
 
 # Default target
 help:
 	@echo "Available targets:"
-	@echo "  deps      - Install dependencies and generate protobuf code"
-	@echo "  build     - Build the policy engine binary"
-	@echo "  run       - Run the policy engine service"
-	@echo "  clean     - Clean generated files and binary"
-	@echo "  generate  - Generate protobuf code only"
+	@echo "  deps             - Install dependencies and generate protobuf code"
+	@echo "  build            - Build the aauth-service binary"
+	@echo "  build-sign-request - Build the sign-request utility tool"
+	@echo "  generate-key     - Generate Ed25519 keypair for resource signing"
+	@echo "  run              - Run the aauth-service service"
+	@echo "  clean            - Clean generated files and binaries"
+	@echo "  generate         - Generate protobuf code only"
 
 # Install dependencies and generate protobuf code
 deps: generate
@@ -21,17 +23,25 @@ generate:
 		--go-grpc_out=gen --go-grpc_opt=paths=source_relative \
 		proto/ext_authz.proto
 
-# Build the binary
+# Build the main service binary
 build: deps
-	go build -o policy-engine .
+	go build -o aauth-service ./cmd/server
+
+# Build the sign-request utility tool
+build-sign-request: deps
+	go build -o sign-request ./cmd/sign-request
+
+# Generate Ed25519 keypair for resource signing
+generate-key:
+	go run ./cmd/generate-key
 
 # Run the service
 run: build
-	./policy-engine
+	./aauth-service
 
 # Clean up
 clean:
-	rm -f policy-engine
+	rm -f aauth-service sign-request
 	rm -rf gen/
 
 # Check if protoc is installed

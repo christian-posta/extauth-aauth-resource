@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"policy_engine/internal/config"
+	"aauth-service/internal/config"
 )
 
 type Registry struct {

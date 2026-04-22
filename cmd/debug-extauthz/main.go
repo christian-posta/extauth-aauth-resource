@@ -13,7 +13,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	pb "policy_engine/gen/proto"
+	pb "aauth-service/gen/proto"
 )
 
 type debugServer struct {

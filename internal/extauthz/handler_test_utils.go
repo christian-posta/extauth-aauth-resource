@@ -1,7 +1,7 @@
 package extauthz
 
 import (
-	"policy_engine/internal/resource"
+	"aauth-service/internal/resource"
 )
 
 // NewTestHandler creates a handler with injected dependencies for testing

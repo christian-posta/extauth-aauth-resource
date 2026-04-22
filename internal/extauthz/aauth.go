@@ -8,12 +8,12 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	pb "policy_engine/gen/proto"
-	"policy_engine/internal/aauth"
-	"policy_engine/internal/config"
-	"policy_engine/internal/logging"
-	"policy_engine/internal/metrics"
-	"policy_engine/internal/policy"
+	pb "aauth-service/gen/proto"
+	"aauth-service/internal/aauth"
+	"aauth-service/internal/config"
+	"aauth-service/internal/logging"
+	"aauth-service/internal/metrics"
+	"aauth-service/internal/policy"
 )
 
 type jwksFetcher interface {

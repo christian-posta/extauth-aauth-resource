@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"policy_engine/internal/config"
+	"aauth-service/internal/config"
 )
 
 func TestVerifyRejectsInvalidHWKPublicKey(t *testing.T) {

@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"policy_engine/internal/aauth"
+	"aauth-service/internal/aauth"
 )
 
 type Header struct {
