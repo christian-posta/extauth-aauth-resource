@@ -21,6 +21,9 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 
 	for _, rcYAML := range cfg.Resources {
 		rc := rcYAML.ToDomain()
+		if err := config.ValidateResource(rc); err != nil {
+			return nil, err
+		}
 
 		// Try to load the private key
 		if rc.SigningKey.PrivateKeyFile != "" {

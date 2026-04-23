@@ -13,5 +13,7 @@ var (
 	ErrExpiredJWT           = errors.New("expired_jwt")
 	ErrInvalidToken         = errors.New("invalid_token")
 	ErrInsufficientScope    = errors.New("insufficient_scope")
-	ErrUnsupportedScheme    = errors.New("unsupported_scheme")
+	ErrUnsupportedScheme              = errors.New("unsupported_scheme")
+	ErrDisallowedSignatureKeyScheme   = errors.New("disallowed_signature_key_scheme")
+	ErrDisallowedJWTType              = errors.New("disallowed_jwt_type")
 )

@@ -44,6 +44,8 @@ type ResourceConfigYAML struct {
 	AuthServers                   []AuthServerYAML  `yaml:"auth_servers"`
 	AgentServers                  []AgentServerYAML `yaml:"agent_servers"`
 	Policy                        PolicyConfigYAML  `yaml:"policy"`
+	AllowedSignatureKeySchemes    []string          `yaml:"allowed_signature_key_schemes"`
+	AllowedJWTTypes               []string          `yaml:"allowed_jwt_types"`
 }
 
 type SigningKeyYAML struct {
@@ -115,5 +117,7 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 		AuthServers:                   authServers,
 		AgentServers:                  agentServers,
 		Policy:                        PolicyConfig{Name: c.Policy.Name},
+		AllowedSignatureKeySchemes:    NormalizeAndDedupeTokens(c.AllowedSignatureKeySchemes),
+		AllowedJWTTypes:               NormalizeAndDedupeTokens(c.AllowedJWTTypes),
 	}
 }

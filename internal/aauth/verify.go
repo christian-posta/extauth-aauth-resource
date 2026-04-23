@@ -64,6 +64,12 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 	var identity Identity
 	scheme := string(parsedKey.Scheme)
 
+	if len(rc.AllowedSignatureKeySchemes) > 0 {
+		if !stringInSlice(scheme, rc.AllowedSignatureKeySchemes) {
+			return fail(identity, scheme, "config.signature_key_scheme", "signature-key scheme not allowed for this resource", ErrDisallowedSignatureKeyScheme)
+		}
+	}
+
 	switch parsedKey.Scheme {
 	case sigkey.SchemeHWK:
 		// Non-standard pseudonymous extension: inline bare key.
@@ -193,6 +199,10 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		typ, _ := jwtHeader["typ"].(string)
 		iss, _ := jwtClaimsMap["iss"].(string)
 		dwk, _ := jwtClaimsMap["dwk"].(string)
+
+		if len(rc.AllowedJWTTypes) > 0 && !stringInSlice(strings.ToLower(typ), rc.AllowedJWTTypes) {
+			return fail(identity, scheme, "config.jwt_typ", "jwt typ not allowed for this resource: "+typ, ErrDisallowedJWTType)
+		}
 
 		if typ == "aa-agent+jwt" {
 			// Verify the issuer is a known agent server (if configured).
@@ -329,6 +339,15 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 	}
 
 	return VerifyResult{Identity: identity, Err: nil, Diagnostics: &VerifyDiagnostics{Scheme: scheme, Stage: "ok"}}
+}
+
+func stringInSlice(s string, list []string) bool {
+	for _, x := range list {
+		if s == x {
+			return true
+		}
+	}
+	return false
 }
 
 // extractEd25519FromCnf pulls the Ed25519 public key from a JWT's cnf.jwk claim map.

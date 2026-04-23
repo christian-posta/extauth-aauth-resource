@@ -64,6 +64,8 @@ make generate-key
 
 ### 3. Create `aauth-config.yaml`
 
+The file `aauth-config.example.yaml` in the repository root lists every supported option with inline comments (including `allowed_signature_key_schemes` and `allowed_jwt_types`).
+
 This config defines a single protected resource (`mcp-api`) that allows pseudonymous access:
 
 ```yaml

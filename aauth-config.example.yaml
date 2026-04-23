@@ -1,0 +1,122 @@
+# =============================================================================
+# AAuth ExtAuthZ service — example configuration (all options documented)
+# Copy to aauth-config.yaml (or path in AAUTH_CONFIG) and edit for your deploy.
+# =============================================================================
+
+# gRPC ExtAuthZ API and HTTP sidecar (well-known, JWKS, resource tokens, metrics).
+listen:
+  # Address for the Envoy/gRPC external authorization service.
+  grpc: ":7070"
+  # Address for HTTP routes: /.well-known/*, /resource/token, /metrics.
+  http: ":8080"
+
+# JWKS and AAuth metadata fetch cache (used when verifying jwks_uri / jwt schemes).
+jwks_cache:
+  # How long a successful JWKS/metadata response is reused.
+  success_ttl: 5m
+  # Backoff after fetch errors before retrying the same URI.
+  error_ttl: 30s
+  # Maximum distinct URIs cached (LRU-style cap depends on client impl).
+  max_entries: 1000
+
+# Each entry is one protected resource (issuer + optional host routing).
+resources:
+  - # Stable id; referenced by Envoy context extension aauth_resource_id when set.
+    id: example-resource
+
+    # Canonical issuer URL for this resource (resource metadata, tokens, audience checks).
+    issuer: https://resource.example.com
+
+    # Host header values that map to this resource when aauth_resource_id is not sent.
+    hosts:
+      - resource.example.com
+      - localhost:8080
+
+    # Ed25519 key used to sign resource tokens and (optionally) JWTs served at /.well-known/jwks.json.
+    signing_key:
+      kid: rsk-1
+      alg: EdDSA
+      private_key_file: resource_key.pem
+
+    # Max |now - created| for the HTTP Message Signature (RFC 9421).
+    signature_window: 60s
+
+    # Extra @-named or header components that must appear in Signature-Input (beyond the AAuth baseline).
+    additional_signature_components: []
+
+    # OAuth-style scopes this resource advertises (metadata + policy hints).
+    supported_scopes:
+      - mcp:invoke
+    scope_descriptions:
+      mcp:invoke: Invoke MCP tools
+
+    # URL clients are directed to for authorization (AAuth-Requirement auth-server).
+    authorization_endpoint: https://auth.example.com/oauth/authorize
+
+    # If true, accept Signature-Key scheme "hwk" (inline bare Ed25519 public key, pseudonymous).
+    # If false, hwk requests fail after key parse (unless hwk is excluded via allowed_signature_key_schemes).
+    allow_pseudonymous: true
+
+    # If true, strip Signature, Signature-Input, and Signature-Key before the request continues upstream.
+    strip_signature_headers: false
+
+    # Override the HTTP :authority value used when building/verifying the signature base string (advanced).
+    authority_override: ""
+
+    # OAuth authorization servers that may issue aa-auth+jwt embedded in Signature-Key (issuer allowlist + JWKS).
+    auth_servers:
+      - issuer: https://auth.example.com
+        jwks_uri: https://auth.example.com/.well-known/jwks.json
+
+    # Agent platforms that may be referenced by jwks_uri id= or aa-agent+jwt iss= (issuer allowlist + optional JWKS pin).
+    agent_servers:
+      - issuer: https://agents.example.com
+        jwks_uri: https://agents.example.com/.well-known/jwks.json
+
+    # Pluggable policy engine name (see internal/policy).
+    policy:
+      name: default
+
+    # --- Signature-Key scheme allowlist (optional) --------------------------------
+    # When omitted or empty: legacy behavior — hwk allowed iff allow_pseudonymous;
+    # jwks_uri and jwt are both allowed if otherwise valid.
+    # When set: only listed schemes are accepted. Values: hwk | jwks_uri | jwt
+    # Constraint: if hwk is listed, allow_pseudonymous must be true (validated at startup).
+    allowed_signature_key_schemes:
+      - hwk
+      - jwks_uri
+      - jwt
+
+    # --- JWT typ allowlist inside the jwt Signature-Key scheme (optional) -------
+    # When omitted or empty: both agent and authorization JWT types are allowed.
+    # When set: only listed typ values are accepted (JWT header "typ").
+    # Values: aa-agent+jwt | aa-auth+jwt
+    # Constraint: if allowed_signature_key_schemes is non-empty, it must include jwt
+    # when allowed_jwt_types is set (validated at startup).
+    allowed_jwt_types:
+      - aa-agent+jwt
+      - aa-auth+jwt
+
+  # --- Minimal second example (common production pattern) -----------------------
+  - id: agents-only-mcp
+    issuer: https://mcp.example.com
+    hosts:
+      - mcp.example.com
+    signing_key:
+      kid: rsk-mcp
+      alg: EdDSA
+      private_key_file: mcp_resource.pem
+    signature_window: 60s
+    allow_pseudonymous: false
+    authorization_endpoint: https://auth.example.com/oauth/authorize
+    agent_servers:
+      - issuer: https://agents.example.com
+        jwks_uri: https://agents.example.com/.well-known/jwks.json
+    policy:
+      name: default
+    # No bare hwk; require agent-linked material (jwks_uri or jwt), agent JWT typ only.
+    allowed_signature_key_schemes:
+      - jwks_uri
+      - jwt
+    allowed_jwt_types:
+      - aa-agent+jwt

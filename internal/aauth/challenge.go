@@ -205,6 +205,16 @@ func (c *Challenge) signatureErrorHeader() (string, bool) {
 			Name:  "error",
 			Value: structfields.Item{Value: structfields.Token("invalid_key")},
 		})
+	case ErrDisallowedSignatureKeyScheme:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_key")},
+		})
+	case ErrDisallowedJWTType:
+		dict = append(dict, structfields.DictMember{
+			Name:  "error",
+			Value: structfields.Item{Value: structfields.Token("invalid_jwt")},
+		})
 	default:
 		return "", false
 	}

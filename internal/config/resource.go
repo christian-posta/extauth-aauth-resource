@@ -23,6 +23,13 @@ type ResourceConfig struct {
 	AuthServers                   []AuthServer
 	AgentServers                  []AgentServer
 	Policy                        PolicyConfig
+	// AllowedSignatureKeySchemes, if non-empty, restricts Signature-Key schemes
+	// for this resource (hwk, jwks_uri, jwt). Empty means legacy: all schemes
+	// may be used subject to other rules (e.g. allow_pseudonymous for hwk).
+	AllowedSignatureKeySchemes []string
+	// AllowedJWTTypes, if non-empty, restricts JWT typ inside the jwt Signature-Key
+	// scheme (aa-agent+jwt, aa-auth+jwt). Empty means both are allowed when jwt is used.
+	AllowedJWTTypes []string
 }
 
 type SigningKey struct {
