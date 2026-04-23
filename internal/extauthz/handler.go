@@ -60,8 +60,8 @@ func (h *Handler) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckRes
 			return h.deny()
 		}
 	} else {
-		// Fallback to Host header
-		host := attrs.GetRequest().GetHttp().GetHost()
+		// Fallback to authority from headers / http.host (see AuthorityForSignature).
+		host := AuthorityForSignature(attrs.GetRequest().GetHttp())
 		rc, ok = h.registry.ByHost(host)
 		if !ok {
 			log.Printf("Non-AAuth route (host: %s), allowing by default", host)

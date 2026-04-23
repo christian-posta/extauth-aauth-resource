@@ -39,7 +39,7 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 	httpReq := attrs.GetRequest().GetHttp()
 
 	method := httpReq.GetMethod()
-	authority := httpReq.GetHost()
+	authority := AuthorityForSignature(httpReq)
 	if rc.AuthorityOverride != "" {
 		authority = rc.AuthorityOverride
 	}
@@ -77,6 +77,7 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		})
 		log.Printf("AAuth verification failed resource=%s method=%s host=%s path=%s level=%s error=%s", rc.ID, method, authority, path, levelStr, reason)
 		log.Printf("AAuth failure headers resource=%s method=%s host=%s path=%s snapshot=%s", rc.ID, method, authority, path, logging.FormatRelevantHeaders(headers))
+		LogAuthorityResolutionOnFailure(httpReq, authority, rc.AuthorityOverride != "", rc.ID)
 
 		var hint *aauth.AgentHint
 		if res.Identity.Level != "" {

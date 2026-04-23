@@ -5,6 +5,9 @@
 *.so
 *.dylib
 
+# Local build directory (e.g. go build -o bin/server ./cmd/server)
+/bin/
+
 # Go build outputs at repo root (go build -o …)
 /aauth-service
 /policy-engine
