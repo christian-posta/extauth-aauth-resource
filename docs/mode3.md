@@ -11,8 +11,8 @@ Mode 3 is the three-party AAuth flow where the resource challenges an identified
 4. The Person Server returns an `aa-auth+jwt` with:
    `iss=<person server>`
    `aud=<resource issuer>`
-   `act.sub=<agent signing key thumbprint>`
-5. The agent retries the original request, signed with the same key and carrying the `aa-auth+jwt`.
+   `agent=<agent identifier>` and `act.sub` equal to that same agent identifier (per SPEC.md §9.4.3)
+5. The agent retries the original request, signed with the same key as `cnf.jwk` and carrying the `aa-auth+jwt`.
 6. The resource verifies the auth token and allows the request as `authorized`.
 
 ## Resource Config
@@ -62,10 +62,10 @@ The returned auth token is expected to contain:
 - `iss`: the Person Server issuer
 - `dwk`: `aauth-access.json`
 - `aud`: the resource issuer
-- `sub`: the delegated agent identity
-- `agent`: an agent platform URL
-- `act.sub`: the same thumbprint as the request signing key
-- `cnf.jwk`: the public key used to sign the follow-up request
+- `sub`: directed user identifier (or opaque delegate id), when present
+- `agent`: agent identifier (`aauth:local@domain` per SPEC.md §16.9, or a legacy `https://` agent-server URL)
+- `act.sub`: same agent identifier as `agent` (RFC 8693 actor); key binding is via `cnf.jwk` vs the HTTP signature
+- `cnf.jwk`: the public key used to sign the follow-up request (thumbprint must match the request signing key)
 
 ## Demo
 
@@ -82,5 +82,6 @@ That script starts a stub Person Server, starts the resource service with [demo/
 - `401` with no `resource-token`: the initial request did not establish agent key material, so the resource had nothing to bind.
 - `person_server.issuer is required`: the resource is configured for `auth-token` but missing the pinned Person Server.
 - `audience mismatch`: the Person Server minted the wrong `aud`; the auth token must target the resource issuer.
-- `act.sub must match cnf.jwk thumbprint`: the follow-up request was not signed by the same key the auth token binds to.
+- `act.sub must match agent claim`: `act.sub` and `agent` disagree (both must be the agent identifier).
+- `httpsig.verify` / `invalid_signature`: the follow-up request was not signed by the key in `cnf.jwk`.
 - `issuer is not a configured auth server`: the resource does not trust the Person Server issuer for `aa-auth+jwt` verification.

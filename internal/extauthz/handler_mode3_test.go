@@ -2,7 +2,6 @@ package extauthz_test
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -167,20 +166,18 @@ func mode3AuthJWT(t *testing.T, agentPub ed25519.PublicKey, signer ed25519.Priva
 	var jwkMap map[string]interface{}
 	json.Unmarshal(jwkBytes, &jwkMap)
 
-	agentJWKKey, _ := jwk.FromRaw(agentPub)
-	agentJKTBytes, _ := agentJWKKey.Thumbprint(crypto.SHA256)
-	agentJKT := base64.RawURLEncoding.EncodeToString(agentJKTBytes)
+	const agentID = "aauth:mode3-agent@agents.example.com"
 
 	claims := map[string]interface{}{
 		"iss":   "https://ps.example.com",
 		"dwk":   "aauth-access.json",
 		"sub":   "test-delegate",
 		"aud":   "https://res.example.com",
-		"agent": "https://agents.example.com",
+		"agent": agentID,
 		"scope": "read:data",
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"act":   map[string]interface{}{"sub": agentJKT},
+		"act":   map[string]interface{}{"sub": agentID},
 		"cnf": map[string]interface{}{
 			"jwk": jwkMap,
 		},

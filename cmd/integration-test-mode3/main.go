@@ -183,17 +183,18 @@ func (s *stubPersonServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	agentID := claims.Agent
 	token, err := signJWT("aa-auth+jwt", "stub-ps-key", map[string]interface{}{
 		"iss":   s.baseURL,
 		"dwk":   "aauth-access.json",
-		"sub":   claims.Agent,
+		"sub":   agentID,
 		"aud":   claims.Iss,
-		"agent": "https://agents.example.com",
+		"agent": agentID,
 		"scope": claims.Scope,
 		"txn":   claims.Txn,
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"act":   map[string]interface{}{"sub": thumbprint},
+		"act":   map[string]interface{}{"sub": agentID},
 		"cnf":   map[string]interface{}{"jwk": req.CnfJWK},
 	}, s.priv)
 	if err != nil {

@@ -342,14 +342,15 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 				return fail(identity, scheme, "jwt.auth.cnf", "missing or invalid cnf.jwk Ed25519 public key", ErrInvalidKey)
 			}
 
-			// Verify act.sub matches cnf.jwk thumbprint (the agent's signing key identity).
-			if authClaims.Act == nil || authClaims.Act.Sub != authClaims.CnfJWK {
-				return fail(identity, scheme, "jwt.auth.act", "act.sub must match cnf.jwk thumbprint", ErrInvalidToken)
+			// SPEC §9.4.3 step 8: act.sub is the agent identifier (RFC 8693 actor), not a JWK
+			// thumbprint; key binding is step 7 (cnf.jwk vs HTTP signature), handled below.
+			if authClaims.Act == nil || authClaims.Act.Sub != authClaims.Agent {
+				return fail(identity, scheme, "jwt.auth.act", "act.sub must match agent claim", ErrInvalidToken)
 			}
 
-			// Verify agent is a non-empty HTTPS URL and (if configured) matches a known agent server.
-			if authClaims.Agent == "" || !strings.HasPrefix(authClaims.Agent, "https://") {
-				return fail(identity, scheme, "jwt.auth.agent", "agent claim must be a non-empty https URL", ErrInvalidToken)
+			// Agent identifier: SPEC §16.9 uses aauth:local@domain; deployments may still use https agent-server URLs.
+			if !isAuthTokenAgentClaim(authClaims.Agent) {
+				return fail(identity, scheme, "jwt.auth.agent", "agent claim must be a non-empty aauth:local@domain URI or https URL", ErrInvalidToken)
 			}
 
 			identity.Level = LevelAuthorized
@@ -408,6 +409,22 @@ func stringInSlice(s string, list []string) bool {
 		if s == x {
 			return true
 		}
+	}
+	return false
+}
+
+// isAuthTokenAgentClaim reports whether the auth token "agent" claim looks like a valid
+// agent identifier per SPEC.md (aauth:local@domain) or a legacy https agent-server URL.
+func isAuthTokenAgentClaim(agent string) bool {
+	if agent == "" {
+		return false
+	}
+	if strings.HasPrefix(agent, "https://") {
+		return true
+	}
+	if strings.HasPrefix(agent, "aauth:") {
+		rest := strings.TrimPrefix(agent, "aauth:")
+		return strings.Contains(rest, "@")
 	}
 	return false
 }

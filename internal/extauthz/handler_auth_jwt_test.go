@@ -2,7 +2,6 @@ package extauthz_test
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -71,22 +70,19 @@ func TestHandlerAuthJWT(t *testing.T) {
 	var jwkMap map[string]interface{}
 	json.Unmarshal(jwkBytes, &jwkMap)
 
-	// Compute the RFC 7638 thumbprint of the agent key for use in act.sub.
-	// act.sub must equal the JWK thumbprint of cnf.jwk per the AAuth spec.
-	agentJWKKey, _ := jwk.FromRaw(agentPub)
-	agentJKTBytes, _ := agentJWKKey.Thumbprint(crypto.SHA256)
-	agentJKT := base64.RawURLEncoding.EncodeToString(agentJKTBytes)
+	// SPEC §9.4.3: act.sub is the agent identifier (same as the agent claim), not cnf.jwk thumbprint.
+	const agentID = "aauth:test-agent@agents.example.com"
 
 	claims := map[string]interface{}{
 		"iss":   "https://auth.example.com",
 		"dwk":   "aauth-access.json",
 		"sub":   "test-delegate",
 		"aud":   "https://res.example.com",
-		"agent": "https://agents.example.com",
+		"agent": agentID,
 		"scope": "read:data write:data",
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
-		"act":   map[string]interface{}{"sub": agentJKT},
+		"act":   map[string]interface{}{"sub": agentID},
 		"cnf": map[string]interface{}{
 			"jwk": jwkMap,
 		},
@@ -175,8 +171,8 @@ func TestHandlerAuthJWT(t *testing.T) {
 			}
 			foundLevel = true
 		case "x-aauth-agent-server":
-			if hdr.Header.Value != "https://agents.example.com" {
-				t.Errorf("expected agent-server=https://agents.example.com, got %v", hdr.Header.Value)
+			if hdr.Header.Value != agentID {
+				t.Errorf("expected agent-server=%s, got %v", agentID, hdr.Header.Value)
 			}
 			foundAgent = true
 		case "x-aauth-delegate":
