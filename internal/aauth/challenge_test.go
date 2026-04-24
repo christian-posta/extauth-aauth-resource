@@ -22,7 +22,8 @@ func TestChallengeResponseAuthTokenRequirement(t *testing.T) {
 		SigningKey: config.SigningKey{
 			Kid: "resource-kid",
 		},
-		PrivateKey: priv,
+		PrivateKey:                 priv,
+		DefaultResourceTokenScopes: []string{"data.read", "profile"},
 		PersonServer: config.PersonServer{
 			Issuer: "https://ps.example.com",
 		},
@@ -98,6 +99,9 @@ func TestChallengeResponseAuthTokenRequirement(t *testing.T) {
 	}
 	if claims["agent_jkt"] != "agent-thumbprint" {
 		t.Fatalf("agent_jkt=%v", claims["agent_jkt"])
+	}
+	if claims["scope"] != "data.read profile" {
+		t.Fatalf("scope=%v", claims["scope"])
 	}
 
 	iat, ok := claims["iat"].(float64)

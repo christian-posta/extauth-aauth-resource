@@ -49,6 +49,10 @@ resources:
       - mcp:invoke
     scope_descriptions:
       mcp:invoke: Invoke MCP tools
+    # Default scopes to embed in 401 challenge resource tokens when the agent
+    # did not proactively call authorization_endpoint with a scope body.
+    default_resource_token_scopes:
+      - mcp:invoke
 
     # Access mode:
     # - identity   = Mode 1, aa-agent+jwt or jwks_uri/hwk identity is enough

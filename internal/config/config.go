@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -37,6 +38,7 @@ type ResourceConfigYAML struct {
 	AdditionalSignatureComponents []string          `yaml:"additional_signature_components"`
 	SupportedScopes               []string          `yaml:"supported_scopes"`
 	ScopeDescriptions             map[string]string `yaml:"scope_descriptions"`
+	DefaultResourceTokenScopes    []string          `yaml:"default_resource_token_scopes"`
 	AuthorizationEndpoint         string            `yaml:"authorization_endpoint"`
 	AuthorizationEndpointOverride string            `yaml:"authorization_endpoint_override"`
 	AllowPseudonymous             bool              `yaml:"allow_pseudonymous"`
@@ -124,6 +126,7 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 		AdditionalSignatureComponents: c.AdditionalSignatureComponents,
 		SupportedScopes:               c.SupportedScopes,
 		ScopeDescriptions:             c.ScopeDescriptions,
+		DefaultResourceTokenScopes:    normalizeScopeValues(c.DefaultResourceTokenScopes),
 		AuthorizationEndpointOverride: firstNonEmpty(c.AuthorizationEndpointOverride, c.AuthorizationEndpoint),
 		AllowPseudonymous:             c.AllowPseudonymous,
 		StripSignatureHeaders:         c.StripSignatureHeaders,
@@ -146,4 +149,27 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeScopeValues(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		scope := strings.TrimSpace(v)
+		if scope == "" {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

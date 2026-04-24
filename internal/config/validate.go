@@ -62,6 +62,9 @@ func ValidateResource(rc *ResourceConfig) error {
 	if err := validateJWTTypes(rc); err != nil {
 		return err
 	}
+	if err := validateDefaultResourceTokenScopes(rc); err != nil {
+		return err
+	}
 	return validateAccess(rc)
 }
 
@@ -151,4 +154,31 @@ func isAllowedPersonServerIssuer(raw string) bool {
 		return false
 	}
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
+}
+
+func validateDefaultResourceTokenScopes(rc *ResourceConfig) error {
+	if len(rc.DefaultResourceTokenScopes) == 0 {
+		return nil
+	}
+
+	defined := make(map[string]struct{}, len(rc.SupportedScopes)+len(rc.ScopeDescriptions))
+	for _, scope := range rc.SupportedScopes {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			defined[scope] = struct{}{}
+		}
+	}
+	for scope := range rc.ScopeDescriptions {
+		scope = strings.TrimSpace(scope)
+		if scope != "" {
+			defined[scope] = struct{}{}
+		}
+	}
+
+	for _, scope := range rc.DefaultResourceTokenScopes {
+		if _, ok := defined[scope]; !ok {
+			return fmt.Errorf("resource %q: default_resource_token_scopes entry %q must be declared in supported_scopes or scope_descriptions", rc.ID, scope)
+		}
+	}
+	return nil
 }

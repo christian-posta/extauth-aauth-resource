@@ -16,6 +16,7 @@ type ResourceConfig struct {
 	AdditionalSignatureComponents []string
 	SupportedScopes               []string
 	ScopeDescriptions             map[string]string
+	DefaultResourceTokenScopes    []string
 	AuthorizationEndpointOverride string
 	AllowPseudonymous             bool
 	StripSignatureHeaders         bool

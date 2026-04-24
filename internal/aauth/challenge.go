@@ -2,6 +2,7 @@ package aauth
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -60,6 +61,11 @@ func (c *Challenge) Response() *pb.CheckResponse {
 	// resource-token is REQUIRED when we have agent identity (two-step flow: first
 	// unsigned request cannot include it since there is no JKT yet; signed retries can).
 	if c.IssueResourceToken && c.AgentHint != nil && c.AgentHint.AgentJKT != "" {
+		scope := strings.Join(c.Resource.DefaultResourceTokenScopes, " ")
+		if scope == "" {
+			scope = c.AgentHint.Scope
+		}
+
 		claims := ResourceTokenClaims{
 			Iss:      c.Resource.Issuer,
 			Agent:    c.AgentHint.AgentIdentifier,
@@ -67,8 +73,8 @@ func (c *Challenge) Response() *pb.CheckResponse {
 			Exp:      time.Now().Add(5 * time.Minute).Unix(),
 		}
 
-		if c.AgentHint.Scope != "" {
-			claims.Scope = c.AgentHint.Scope
+		if scope != "" {
+			claims.Scope = scope
 		}
 		claims.Aud = ResolveResourceTokenAud(c.Resource)
 

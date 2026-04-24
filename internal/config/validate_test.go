@@ -99,3 +99,25 @@ func TestValidateMode3RequiresPersonServer(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateDefaultResourceTokenScopes(t *testing.T) {
+	rc := baseResource()
+	rc.DefaultResourceTokenScopes = []string{"data.read"}
+	if err := ValidateResource(rc); err == nil {
+		t.Fatal("expected error")
+	}
+
+	rc = baseResource()
+	rc.SupportedScopes = []string{"data.read", "data.write"}
+	rc.DefaultResourceTokenScopes = []string{"data.read"}
+	if err := ValidateResource(rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rc = baseResource()
+	rc.ScopeDescriptions = map[string]string{"data.read": "Read access"}
+	rc.DefaultResourceTokenScopes = []string{"data.read"}
+	if err := ValidateResource(rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
