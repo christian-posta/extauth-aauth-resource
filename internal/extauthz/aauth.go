@@ -68,13 +68,6 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "error").Inc()
 		metrics.CheckLatency.WithLabelValues(rc.ID, "error").Observe(time.Since(start).Seconds())
 
-		logging.LogDecision(logging.DecisionLog{
-			ResourceID: rc.ID,
-			Level:      levelStr,
-			Result:     "error",
-			Reason:     reason,
-			LatencyMs:  time.Since(start).Milliseconds(),
-		})
 		log.Printf("AAuth verification failed resource=%s method=%s host=%s path=%s level=%s error=%s", rc.ID, method, authority, path, levelStr, reason)
 		log.Printf("AAuth failure headers resource=%s method=%s host=%s path=%s snapshot=%s", rc.ID, method, authority, path, logging.FormatRelevantHeaders(headers))
 		LogAuthorityResolutionOnFailure(httpReq, authority, rc.AuthorityOverride != "", rc.ID)
@@ -92,6 +85,43 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		issueToken := (hint != nil && hint.AgentJKT != "")
 
 		challenge := aauth.NewChallenge(rc, res.Err, hint, issueToken)
+		resp := challenge.Response()
+
+		logging.LogDecision(logging.DecisionLog{
+			ResourceID:       rc.ID,
+			Level:            levelStr,
+			AgentServer:      res.Identity.AgentServer,
+			Delegate:         res.Identity.Delegate,
+			ResourceTokenJTI: challenge.ResourceTokenJTI,
+			Result:           "error",
+			Reason:           reason,
+			LatencyMs:        time.Since(start).Milliseconds(),
+		})
+		return resp, nil
+	}
+
+	if rc.Access.Require == "auth-token" && res.Identity.Level != aauth.LevelAuthorized {
+		hint := &aauth.AgentHint{
+			AgentIdentifier: res.Identity.Delegate,
+			AgentJKT:        res.Identity.JKT,
+			Scope:           res.Identity.Scope,
+		}
+		challenge := aauth.NewChallenge(rc, aauth.ErrInsufficientScope, hint, true)
+
+		metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "challenged").Inc()
+		metrics.CheckLatency.WithLabelValues(rc.ID, "challenged").Observe(time.Since(start).Seconds())
+
+		logging.LogDecision(logging.DecisionLog{
+			ResourceID:       rc.ID,
+			Level:            levelStr,
+			AgentServer:      res.Identity.AgentServer,
+			Delegate:         res.Identity.Delegate,
+			ResourceTokenJTI: challenge.ResourceTokenJTI,
+			Result:           "challenged",
+			Reason:           aauth.ErrInsufficientScope.Error(),
+			LatencyMs:        time.Since(start).Milliseconds(),
+		})
+
 		return challenge.Response(), nil
 	}
 

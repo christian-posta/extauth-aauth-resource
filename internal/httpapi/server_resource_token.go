@@ -57,7 +57,6 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 	// 3. Body parsing
 	var reqBody struct {
 		Scope string `json:"scope"`
-		Aud   string `json:"aud"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
@@ -65,13 +64,19 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	// Default aud if missing
-	if reqBody.Aud == "" {
-		if len(rc.AuthServers) > 0 {
-			reqBody.Aud = rc.AuthServers[0].Issuer
-		} else {
-			reqBody.Aud = rc.AuthorizationEndpoint
-		}
+	if strings.TrimSpace(reqBody.Scope) == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "invalid_request",
+		})
+		return
+	}
+
+	aud := aauth.ResolveResourceTokenAud(rc)
+	if aud == "" && rc.Access.Require == "auth-token" {
+		http.Error(w, "Resource missing person server issuer", http.StatusInternalServerError)
+		return
 	}
 
 	// Policy Check
@@ -94,7 +99,7 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 	// Mint token. MintResourceToken sets dwk, iat, and jti automatically.
 	claims := aauth.ResourceTokenClaims{
 		Iss:      rc.Issuer,
-		Aud:      reqBody.Aud,
+		Aud:      aud,
 		AgentJKT: res.Identity.JKT,
 		Exp:      time.Now().Add(5 * time.Minute).Unix(),
 		Scope:    reqBody.Scope,

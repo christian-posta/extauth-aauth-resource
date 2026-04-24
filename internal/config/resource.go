@@ -16,13 +16,15 @@ type ResourceConfig struct {
 	AdditionalSignatureComponents []string
 	SupportedScopes               []string
 	ScopeDescriptions             map[string]string
-	AuthorizationEndpoint         string
+	AuthorizationEndpointOverride string
 	AllowPseudonymous             bool
 	StripSignatureHeaders         bool
 	AuthorityOverride             string
 	AuthServers                   []AuthServer
 	AgentServers                  []AgentServer
 	Policy                        PolicyConfig
+	Access                        AccessConfig
+	PersonServer                  PersonServer
 	// AllowedSignatureKeySchemes, if non-empty, restricts Signature-Key schemes
 	// for this resource (hwk, jwks_uri, jwt). Empty means legacy: all schemes
 	// may be used subject to other rules (e.g. allow_pseudonymous for hwk).
@@ -54,4 +56,13 @@ type AgentServer struct {
 
 type PolicyConfig struct {
 	Name string
+}
+
+type AccessConfig struct {
+	Require string
+}
+
+type PersonServer struct {
+	Issuer  string
+	JwksURI string
 }

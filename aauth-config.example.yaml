@@ -50,8 +50,21 @@ resources:
     scope_descriptions:
       mcp:invoke: Invoke MCP tools
 
-    # URL clients are directed to for authorization (AAuth-Requirement auth-server).
-    authorization_endpoint: https://auth.example.com/oauth/authorize
+    # Access mode:
+    # - identity   = Mode 1, aa-agent+jwt or jwks_uri/hwk identity is enough
+    # - auth-token = Mode 3, resource challenges until the agent presents aa-auth+jwt
+    access:
+      require: identity
+
+    # Optional override for the metadata authorization_endpoint value.
+    # When omitted, metadata defaults to <issuer>/resource/token.
+    # authorization_endpoint_override: https://resource.example.com/resource/token
+
+    # Pinned Person Server for Mode 3 resources. Required when access.require=auth-token.
+    # Its issuer is automatically accepted as an auth server for aa-auth+jwt verification.
+    # person_server:
+    #   issuer: https://ps.example.com
+    #   jwks_uri: https://ps.example.com/.well-known/jwks.json
 
     # If true, accept Signature-Key scheme "hwk" (inline bare Ed25519 public key, pseudonymous).
     # If false, hwk requests fail after key parse (unless hwk is excluded via allowed_signature_key_schemes).
@@ -114,7 +127,8 @@ resources:
       private_key_file: mcp_resource.pem
     signature_window: 60s
     allow_pseudonymous: false
-    authorization_endpoint: https://auth.example.com/oauth/authorize
+    access:
+      require: identity
     agent_servers:
       - issuer: https://agents.example.com
         jwks_uri: https://agents.example.com/.well-known/jwks.json

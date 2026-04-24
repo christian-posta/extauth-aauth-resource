@@ -20,6 +20,31 @@ Implements:
 - **AAuth Challenges**: Generates `AAuth-Requirement` 401 responses; automatically mints and embeds `resource-token`s when the agent has provided signing-key material
 - **JWKS Discovery**: Fetches agent/auth server keys via `{issuer}/.well-known/{dwk}` per the AAuth spec
 
+## Access Modes
+
+Resources can now be configured independently for either Mode 1 or Mode 3:
+
+- `access.require: identity` keeps the existing Mode 1 behavior. A valid `aa-agent+jwt`, `jwks_uri`, or allowed `hwk` request is enough to pass auth.
+- `access.require: auth-token` enables Mode 3. A valid Mode 1 request is challenged with `AAuth-Requirement: requirement=auth-token; resource-token="..."` until the caller retries with an `aa-auth+jwt`.
+
+If `access.require` is omitted, it defaults to `identity`, so existing Mode 1 configurations continue to work unchanged.
+
+## Mode 3 Quick Start
+
+For a local three-party walkthrough with a stub Person Server:
+
+```bash
+bash demo/test-mode3.sh
+```
+
+That script starts:
+
+- the AAuth resource service on `127.0.0.1:17070` / `127.0.0.1:18090`
+- a local stub Person Server on `127.0.0.1:9191`
+- a driver that performs the two-call Mode 3 flow end-to-end
+
+For a deeper reference, see [docs/mode3.md](docs/mode3.md).
+
 ## How to Test End-to-End
 
 The following walks through running the service locally with agentgateway.
@@ -160,14 +185,14 @@ curl -i http://localhost:3001/ -H "Host: localhost"
 Expected:
 ```http
 HTTP/1.1 401 Unauthorized
-aauth-requirement: requirement=auth-token, auth-server=""
+aauth-requirement: requirement=auth-token
 www-authenticate: AAuth
 content-type: application/json
 
 {"error":"missing_signature"}
 ```
 
-The `AAuth-Requirement` header tells the agent which auth server to talk to and that a signed request (or auth token) is required.
+The `AAuth-Requirement` header tells the agent that a signed request (or auth token) is required.
 
 ---
 
@@ -249,8 +274,7 @@ curl -s http://localhost:8080/.well-known/aauth-resource.json | jq .
 {
   "issuer": "http://localhost:8080",
   "jwks_uri": "http://localhost:8080/.well-known/jwks.json",
-  "authorization_endpoint": "",
-  "resource_token_endpoint": "http://localhost:8080/resource/token",
+  "authorization_endpoint": "http://localhost:8080/resource/token",
   "signature_window": 60,
   "supported_scopes": null
 }

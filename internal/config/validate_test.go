@@ -71,3 +71,31 @@ func TestNormalizeAndDedupeTokens(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestValidateMode3RequiresPersonServer(t *testing.T) {
+	rc := baseResource()
+	rc.Access.Require = "auth-token"
+	if err := ValidateResource(rc); err == nil {
+		t.Fatal("expected error")
+	}
+
+	rc = baseResource()
+	rc.Access.Require = "auth-token"
+	rc.PersonServer.Issuer = "https://ps.example.com"
+	if err := ValidateResource(rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	rc = baseResource()
+	rc.Access.Require = "auth-token"
+	rc.PersonServer.Issuer = "http://evil.example.com"
+	if err := ValidateResource(rc); err == nil {
+		t.Fatal("expected error")
+	}
+
+	rc = baseResource()
+	rc.PersonServer.Issuer = ""
+	if err := ValidateResource(rc); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

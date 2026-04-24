@@ -16,8 +16,8 @@ ROUTE="/gemini/v1/chat/completions"
 BODY='{"model":"gemini-2.5-flash-lite","messages":[{"role":"user","content":"hello"}]}'
 
 PASS=0; FAIL=0
-ok()   { echo "  PASS: $*"; ((PASS++)); }
-fail() { echo "  FAIL: $*"; ((FAIL++)); }
+ok()   { echo "  PASS: $*"; PASS=$((PASS + 1)); }
+fail() { echo "  FAIL: $*"; FAIL=$((FAIL + 1)); }
 sep()  { echo; echo "━━━ $* ━━━"; }
 
 # ── 1. Unsigned request → 401 + challenge ────────────────────────────────────
@@ -39,10 +39,12 @@ echo "  www-auth    : $www_auth"
 [[ -n "$challenge_hdr" ]]     && ok "AAuth-Requirement present" || fail "AAuth-Requirement missing"
 [[ -n "$www_auth" ]]          && ok "WWW-Authenticate present"  || fail "WWW-Authenticate missing"
 
-# Verify challenge includes auth-server field
-echo "$challenge_hdr" | grep -q "auth-server" \
-  && ok "auth-server field in challenge" \
-  || fail "auth-server field missing from challenge"
+# Verify challenge does not include deprecated auth-server field
+if echo "$challenge_hdr" | grep -q "auth-server"; then
+  fail "deprecated auth-server field present in challenge"
+else
+  ok "challenge omits deprecated auth-server field"
+fi
 
 # ── 2. Signed request (HWK/pseudonymous) → extAuthz allows it ────────────────
 sep "TEST 2: Signed request (HWK pseudonymous) → extAuthz should allow (non-401)"

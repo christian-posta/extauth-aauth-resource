@@ -29,6 +29,7 @@ type Challenge struct {
 	Err                error
 	AgentHint          *AgentHint
 	IssueResourceToken bool
+	ResourceTokenJTI   string
 }
 
 func NewChallenge(rc *config.ResourceConfig, err error, hint *AgentHint, issueToken bool) *Challenge {
@@ -54,7 +55,6 @@ func (c *Challenge) Response() *pb.CheckResponse {
 	// Build AAuth-Requirement header using RFC 8941 Structured Fields.
 	reqDict := structfields.Dictionary{
 		{Name: "requirement", Value: structfields.Item{Value: structfields.Token("auth-token")}},
-		{Name: "auth-server", Value: structfields.Item{Value: c.Resource.AuthorizationEndpoint}},
 	}
 
 	// resource-token is REQUIRED when we have agent identity (two-step flow: first
@@ -70,17 +70,20 @@ func (c *Challenge) Response() *pb.CheckResponse {
 		if c.AgentHint.Scope != "" {
 			claims.Scope = c.AgentHint.Scope
 		}
-		if len(c.Resource.AuthServers) > 0 {
-			claims.Aud = c.Resource.AuthServers[0].Issuer
-		} else {
-			claims.Aud = c.Resource.AuthorizationEndpoint
-		}
+		claims.Aud = ResolveResourceTokenAud(c.Resource)
 
 		tokenStr := "dummy.token.sig"
+		c.ResourceTokenJTI = claims.Jti
 		if len(c.Resource.PrivateKey) > 0 {
 			token, err := MintResourceToken(c.Resource, claims, c.Resource.PrivateKey)
 			if err == nil {
 				tokenStr = token
+				_, parsedClaims, parseErr := parseJWTUnverified(token)
+				if parseErr == nil {
+					if jti, ok := parsedClaims["jti"].(string); ok {
+						c.ResourceTokenJTI = jti
+					}
+				}
 			}
 		}
 

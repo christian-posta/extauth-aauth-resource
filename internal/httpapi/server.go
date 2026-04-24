@@ -74,8 +74,7 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request, rc *conf
 	metadata := map[string]interface{}{
 		"issuer":                          rc.Issuer,
 		"jwks_uri":                        rc.Issuer + "/.well-known/jwks.json", // Could be from config but usually derived
-		"authorization_endpoint":          rc.AuthorizationEndpoint,
-		"resource_token_endpoint":         rc.Issuer + "/resource/token",
+		"authorization_endpoint":          authorizationEndpointForResource(rc),
 		"supported_scopes":                rc.SupportedScopes,
 		"scope_descriptions":              rc.ScopeDescriptions,
 		"additional_signature_components": rc.AdditionalSignatureComponents,
@@ -124,4 +123,11 @@ func Start(listenAddr string, registry *resource.Registry, jwksClient jwksFetche
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	}()
+}
+
+func authorizationEndpointForResource(rc *config.ResourceConfig) string {
+	if rc.AuthorizationEndpointOverride != "" {
+		return rc.AuthorizationEndpointOverride
+	}
+	return rc.Issuer + "/resource/token"
 }

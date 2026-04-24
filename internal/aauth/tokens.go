@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
+	"github.com/lestrrat-go/jwx/v2/jws"
 
 	"aauth-service/internal/config"
 )
@@ -32,6 +33,71 @@ type JOSEHeader struct {
 	Typ string `json:"typ"`
 	Alg string `json:"alg"`
 	Kid string `json:"kid"`
+}
+
+// ResolveResourceTokenAud returns the configured audience for resource tokens.
+// Mode 3 pins this to the configured Person Server issuer.
+func ResolveResourceTokenAud(rc *config.ResourceConfig) string {
+	if rc == nil {
+		return ""
+	}
+	if rc.PersonServer.Issuer != "" {
+		return rc.PersonServer.Issuer
+	}
+	return ""
+}
+
+func ParseAndVerifyResourceToken(token string, set jwk.Set, expectedAud string, allowInsecureISS bool) (*ResourceTokenClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil, ErrInvalidJWT
+	}
+
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, ErrInvalidJWT
+	}
+	var header map[string]interface{}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return nil, ErrInvalidJWT
+	}
+	typ, _ := header["typ"].(string)
+	if typ != "aa-resource+jwt" {
+		return nil, fmt.Errorf("%w: expected typ=aa-resource+jwt, got %s", ErrInvalidJWT, typ)
+	}
+
+	payload, err := jws.Verify([]byte(token), jws.WithKeySet(set, jws.WithInferAlgorithmFromKey(true)))
+	if err != nil {
+		return nil, fmt.Errorf("%w: signature verification failed: %v", ErrInvalidSignature, err)
+	}
+
+	var claims ResourceTokenClaims
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, ErrInvalidJWT
+	}
+	if claims.Dwk != "aauth-resource.json" {
+		return nil, fmt.Errorf("%w: expected dwk=aauth-resource.json, got %s", ErrInvalidJWT, claims.Dwk)
+	}
+	if !issAllowedInAAuthJWT(claims.Iss, allowInsecureISS) {
+		if !allowInsecureISS {
+			return nil, fmt.Errorf("%w: iss must be an HTTPS URL", ErrInvalidJWT)
+		}
+		return nil, fmt.Errorf("%w: iss must be https, or http for a local development host when allow_insecure_jwt_issuer is true", ErrInvalidJWT)
+	}
+	now := time.Now()
+	if claims.Iat > 0 && time.Unix(claims.Iat, 0).After(now.Add(5*time.Second)) {
+		return nil, fmt.Errorf("%w: iat is in the future", ErrInvalidJWT)
+	}
+	if claims.Exp > 0 && now.Unix() > claims.Exp {
+		return nil, ErrExpiredJWT
+	}
+	if expectedAud != "" && claims.Aud != expectedAud {
+		return nil, fmt.Errorf("%w: audience mismatch: got %s, expected %s", ErrInvalidToken, claims.Aud, expectedAud)
+	}
+	if claims.AgentJKT == "" {
+		return nil, fmt.Errorf("%w: agent_jkt is required", ErrInvalidToken)
+	}
+	return &claims, nil
 }
 
 // newJTI generates a random UUID v4 string for use as a JWT jti claim.

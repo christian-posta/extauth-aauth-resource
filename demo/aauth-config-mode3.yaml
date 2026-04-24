@@ -1,0 +1,47 @@
+# AAuth Resource-Side ExtAuthZ service configuration for local Mode 3 demo.
+#
+# Start with:
+#   AAUTH_CONFIG=demo/aauth-config-mode3.yaml ./aauth-service --port 17070
+
+listen:
+  grpc: ":17070"
+  http: ":18090"
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl: 30s
+  max_entries: 1000
+
+resources:
+  - id: mode3-demo
+    issuer: "http://127.0.0.1:18090"
+    hosts:
+      - "localhost"
+      - "127.0.0.1"
+      - "localhost:17070"
+      - "127.0.0.1:17070"
+      - "localhost:18090"
+      - "127.0.0.1:18090"
+
+    signing_key:
+      kid: "mode3-demo-key"
+      alg: "EdDSA"
+      private_key_file: "demo/resource_key.pem"
+
+    signature_window: 60s
+    allow_pseudonymous: false
+    strip_signature_headers: true
+
+    access:
+      require: auth-token
+
+    person_server:
+      issuer: "http://127.0.0.1:9191"
+      jwks_uri: "http://127.0.0.1:9191/.well-known/jwks.json"
+
+    agent_servers:
+      - issuer: "http://127.0.0.1:9191"
+        jwks_uri: "http://127.0.0.1:9191/.well-known/jwks.json"
+
+    policy:
+      name: default

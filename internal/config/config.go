@@ -38,12 +38,15 @@ type ResourceConfigYAML struct {
 	SupportedScopes               []string          `yaml:"supported_scopes"`
 	ScopeDescriptions             map[string]string `yaml:"scope_descriptions"`
 	AuthorizationEndpoint         string            `yaml:"authorization_endpoint"`
+	AuthorizationEndpointOverride string            `yaml:"authorization_endpoint_override"`
 	AllowPseudonymous             bool              `yaml:"allow_pseudonymous"`
 	StripSignatureHeaders         bool              `yaml:"strip_signature_headers"`
 	AuthorityOverride             string            `yaml:"authority_override"`
 	AuthServers                   []AuthServerYAML  `yaml:"auth_servers"`
 	AgentServers                  []AgentServerYAML `yaml:"agent_servers"`
 	Policy                        PolicyConfigYAML  `yaml:"policy"`
+	Access                        AccessConfigYAML  `yaml:"access"`
+	PersonServer                  PersonServerYAML  `yaml:"person_server"`
 	AllowedSignatureKeySchemes    []string          `yaml:"allowed_signature_key_schemes"`
 	AllowedJWTTypes               []string          `yaml:"allowed_jwt_types"`
 	// AllowInsecureJWTIssuer: see ResourceConfig.
@@ -68,6 +71,15 @@ type AgentServerYAML struct {
 
 type PolicyConfigYAML struct {
 	Name string `yaml:"name"`
+}
+
+type AccessConfigYAML struct {
+	Require string `yaml:"require"`
+}
+
+type PersonServerYAML struct {
+	Issuer  string `yaml:"issuer"`
+	JwksURI string `yaml:"jwks_uri"`
 }
 
 // LoadConfig loads configuration from a YAML file path or falls back to a stub configuration
@@ -112,15 +124,26 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 		AdditionalSignatureComponents: c.AdditionalSignatureComponents,
 		SupportedScopes:               c.SupportedScopes,
 		ScopeDescriptions:             c.ScopeDescriptions,
-		AuthorizationEndpoint:         c.AuthorizationEndpoint,
+		AuthorizationEndpointOverride: firstNonEmpty(c.AuthorizationEndpointOverride, c.AuthorizationEndpoint),
 		AllowPseudonymous:             c.AllowPseudonymous,
 		StripSignatureHeaders:         c.StripSignatureHeaders,
 		AuthorityOverride:             c.AuthorityOverride,
 		AuthServers:                   authServers,
 		AgentServers:                  agentServers,
 		Policy:                        PolicyConfig{Name: c.Policy.Name},
+		Access:                        AccessConfig{Require: c.Access.Require},
+		PersonServer:                  PersonServer{Issuer: c.PersonServer.Issuer, JwksURI: c.PersonServer.JwksURI},
 		AllowedSignatureKeySchemes:    NormalizeAndDedupeTokens(c.AllowedSignatureKeySchemes),
 		AllowedJWTTypes:               NormalizeAndDedupeTokens(c.AllowedJWTTypes),
 		AllowInsecureJWTIssuer:        c.AllowInsecureJWTIssuer,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

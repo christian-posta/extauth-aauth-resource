@@ -8,14 +8,15 @@ import (
 )
 
 type DecisionLog struct {
-	Time        string `json:"time"`
-	ResourceID  string `json:"resource_id"`
-	Level       string `json:"level,omitempty"`
-	AgentServer string `json:"agent_server,omitempty"`
-	Delegate    string `json:"delegate,omitempty"`
-	Result      string `json:"result"`
-	Reason      string `json:"reason,omitempty"`
-	LatencyMs   int64  `json:"latency_ms"`
+	Time             string `json:"time"`
+	ResourceID       string `json:"resource_id"`
+	Level            string `json:"level,omitempty"`
+	AgentServer      string `json:"agent_server,omitempty"`
+	Delegate         string `json:"delegate,omitempty"`
+	ResourceTokenJTI string `json:"resource_token_jti,omitempty"`
+	Result           string `json:"result"`
+	Reason           string `json:"reason,omitempty"`
+	LatencyMs        int64  `json:"latency_ms"`
 }
 
 var logger = log.New(os.Stdout, "", 0)

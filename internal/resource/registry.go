@@ -21,6 +21,7 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 
 	for _, rcYAML := range cfg.Resources {
 		rc := rcYAML.ToDomain()
+		autoAddPersonServer(rc)
 		if err := config.ValidateResource(rc); err != nil {
 			return nil, err
 		}
@@ -50,6 +51,24 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 	}
 
 	return r, nil
+}
+
+func autoAddPersonServer(rc *config.ResourceConfig) {
+	if rc.PersonServer.Issuer == "" {
+		return
+	}
+	for i := range rc.AuthServers {
+		if rc.AuthServers[i].Issuer == rc.PersonServer.Issuer {
+			if rc.AuthServers[i].JwksURI == "" && rc.PersonServer.JwksURI != "" {
+				rc.AuthServers[i].JwksURI = rc.PersonServer.JwksURI
+			}
+			return
+		}
+	}
+	rc.AuthServers = append(rc.AuthServers, config.AuthServer{
+		Issuer:  rc.PersonServer.Issuer,
+		JwksURI: rc.PersonServer.JwksURI,
+	})
 }
 
 func (r *Registry) ByID(id string) (*config.ResourceConfig, bool) {

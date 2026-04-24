@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -58,7 +59,10 @@ func ValidateResource(rc *ResourceConfig) error {
 	if err := validateSignatureKeySchemes(rc); err != nil {
 		return err
 	}
-	return validateJWTTypes(rc)
+	if err := validateJWTTypes(rc); err != nil {
+		return err
+	}
+	return validateAccess(rc)
 }
 
 func validateSignatureKeySchemes(rc *ResourceConfig) error {
@@ -106,4 +110,45 @@ func validateJWTTypes(rc *ResourceConfig) error {
 		}
 	}
 	return nil
+}
+
+func validateAccess(rc *ResourceConfig) error {
+	require := strings.ToLower(strings.TrimSpace(rc.Access.Require))
+	if require == "" {
+		require = "identity"
+	}
+	rc.Access.Require = require
+
+	switch require {
+	case "identity", "auth-token":
+	default:
+		return fmt.Errorf("resource %q: unknown access.require %q (want identity or auth-token)", rc.ID, rc.Access.Require)
+	}
+
+	if require != "auth-token" {
+		return nil
+	}
+
+	if rc.PersonServer.Issuer == "" {
+		return fmt.Errorf("resource %q: person_server.issuer is required when access.require=auth-token", rc.ID)
+	}
+	if !isAllowedPersonServerIssuer(rc.PersonServer.Issuer) {
+		return fmt.Errorf("resource %q: person_server.issuer must use https, or http for localhost-style development hosts", rc.ID)
+	}
+	return nil
+}
+
+func isAllowedPersonServerIssuer(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
 }
