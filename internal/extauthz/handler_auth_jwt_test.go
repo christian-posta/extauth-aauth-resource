@@ -196,4 +196,26 @@ func TestHandlerAuthJWT(t *testing.T) {
 		}
 		t.Logf("Got headers: %s", strings.Join(names, ", "))
 	}
+
+	dm := resp.GetDynamicMetadata()
+	if dm == nil {
+		t.Fatal("expected CheckResponse.dynamic_metadata for aa-auth+jwt")
+	}
+	f := dm.GetFields()
+	if f["agent"].GetStringValue() != agentID {
+		t.Errorf("dynamic_metadata.agent: want %q, got %v", agentID, f["agent"])
+	}
+	if f["sub"].GetStringValue() != "test-delegate" {
+		t.Errorf("dynamic_metadata.sub: want test-delegate, got %v", f["sub"])
+	}
+	if f["scope"].GetStringValue() != "read:data write:data" {
+		t.Errorf("dynamic_metadata.scope: got %v", f["scope"])
+	}
+	act := f["act"].GetStructValue()
+	if act == nil {
+		t.Fatal("dynamic_metadata.act missing")
+	}
+	if act.GetFields()["sub"].GetStringValue() != agentID {
+		t.Errorf("dynamic_metadata.act.sub: want %q, got %v", agentID, act.GetFields()["sub"])
+	}
 }

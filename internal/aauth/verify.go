@@ -357,6 +357,9 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			identity.AgentServer = authClaims.Agent
 			identity.Delegate = authClaims.Sub
 			identity.Scope = authClaims.Scope
+			if authClaims.Act != nil {
+				identity.ActSub = authClaims.Act.Sub
+			}
 			identity.Txn = authClaims.Txn
 			identity.JKT = authClaims.CnfJWK
 

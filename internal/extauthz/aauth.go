@@ -200,6 +200,12 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		headersToRemove = []string{"signature", "signature-input", "signature-key"}
 	}
 
+	dynamicMeta, err := aauth.ExtAuthzDynamicMetadata(res.Identity)
+	if err != nil {
+		log.Printf("ext_authz dynamic metadata: %v", err)
+		dynamicMeta = nil
+	}
+
 	return &pb.CheckResponse{
 		Status: &pb.Status{Code: 0}, // OK
 		HttpResponse: &pb.CheckResponse_OkResponse{
@@ -208,5 +214,6 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 				HeadersToRemove: headersToRemove,
 			},
 		},
+		DynamicMetadata: dynamicMeta,
 	}, nil
 }

@@ -19,6 +19,7 @@ Implements:
 - **Identity Levels**: `pseudonymous` (inline bare key), `identified` (agent+jwt or jwks_uri), `authorized` (auth+jwt)
 - **AAuth Challenges**: Generates `AAuth-Requirement` 401 responses; automatically mints and embeds `resource-token`s when the agent has provided signing-key material
 - **JWKS Discovery**: Fetches agent/auth server keys via `{issuer}/.well-known/{dwk}` per the AAuth spec
+- **ExtAuthZ dynamic metadata**: On allow with `aa-auth+jwt`, the gRPC `CheckResponse` includes `dynamic_metadata` (agent, scope, `act`, `sub`) for downstream CEL rules in AgentGateway
 
 ## Access Modes
 
@@ -396,6 +397,46 @@ On a successful auth check the service adds these headers to the upstream reques
 | `x-aauth-delegate` | `identified`/`authorized` | `sub` claim from the agent/auth token |
 | `x-aauth-scope` | `authorized` | Space-separated granted scopes |
 | `x-aauth-txn` | `authorized`, if present | Transaction ID from the auth token |
+
+---
+
+## ExtAuthZ dynamic metadata and CEL (AgentGateway)
+
+This service speaks **gRPC** ext_authz (Envoy-compatible `Check` / `CheckResponse`). When a request is allowed after verifying an **`aa-auth+jwt`** (`x-aauth-level: authorized`), the response sets **`CheckResponse.dynamic_metadata`** as a `google.protobuf.Struct`. AgentGateway exposes that object to local authorization (CEL) as the **`extauthz`** variable, so you can enforce route-level rules on decoded claims without re-parsing the JWT downstream.
+
+Dynamic metadata is **not** set for `aa-agent+jwt`, `jwks_uri`, or `hwk` paths (identity-only success); it applies only to the **auth-token** success path.
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `agent` | string | Agent identifier from the JWT `agent` claim |
+| `scope` | string | OAuth-style scope string from the JWT `scope` claim (same name as in the token) |
+| `act` | object | RFC 8693 actor; use `act.sub` in CEL |
+| `sub` | string | Delegate subject from the JWT `sub` claim (omitted from the struct if empty) |
+
+Example CEL rules (exact builtins and string helpers depend on your AgentGateway / CEL version):
+
+```yaml
+authorization:
+  rules:
+    # Require a non-empty delegate subjecnt
+    - "extauthz.sub != ''"
+
+    # Restrict to a known agent URI
+    - "extauthz.agent == 'aauth:local@agents.example.com'"
+
+    # Scope is a single string from the JWT (often space-separated OAuth scopes); exact match:
+    - "extauthz.scope == 'read:data write:data'"
+
+    # Actor must match agent (token verification already enforces act.sub == agent; optional defense in depth)
+    - "extauthz.act.sub == extauthz.agent"
+
+    # Combine claims
+    - "extauthz.sub != '' && extauthz.scope != ''"
+```
+
+For partial scope checks (for example, requiring `read:data` inside a longer `scope` string), use whatever string or regex helpers your gateway documents for CEL, or normalize scopes in your auth server.
+
+If your gateway maps HTTP ext_authz responses into metadata instead, configure the **`metadata`** block on the HTTP protocol; this repository’s gRPC server populates **`dynamic_metadata`** directly on `CheckResponse`, which is the native Envoy path for gRPC ext_authz.
 
 ---
 
