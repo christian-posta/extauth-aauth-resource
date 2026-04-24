@@ -1286,3 +1286,8 @@ Table of Contents
      |                                             |
      | 200 OK                                      |
      |&lt;--------------------------------------------|
+
+
+## Implementation note (this repository)
+
+In **aa-agent+jwt** verification, the `aud` (audience) claim is **not required**; agent identity tokens are not resource-scoped like **aa-auth+jwt**, which must carry `aud` for the target resource. If `aud` is present on an **aa-agent+jwt**, this implementation requires it to match the resource `issuer` (or an entry, if `aud` is an array).

@@ -30,6 +30,10 @@ type ResourceConfig struct {
 	// AllowedJWTTypes, if non-empty, restricts JWT typ inside the jwt Signature-Key
 	// scheme (aa-agent+jwt, aa-auth+jwt). Empty means both are allowed when jwt is used.
 	AllowedJWTTypes []string
+	// AllowInsecureJWTIssuer, when true, allows JWT iss (and related checks in token
+	// verification) to use http:// for local development hosts (localhost, 127.0.0.1, ::1,
+	// *.localhost) in addition to https://. When false, iss must be https:// (spec default).
+	AllowInsecureJWTIssuer bool
 }
 
 type SigningKey struct {

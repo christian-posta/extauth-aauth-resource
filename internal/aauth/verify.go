@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -16,6 +17,39 @@ import (
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/sigkey"
 )
+
+// aauthJWKSErr carries a diagnostic stage for AAuth well-known -> jwks_uri -> JWKS loading.
+type aauthJWKSErr struct {
+	Stage  string
+	Detail string
+}
+
+func (e *aauthJWKSErr) Error() string { return e.Detail }
+
+// loadAAuthJWKSSet fetches the issuer's well-known metadata, reads jwks_uri, optionally
+// checks it against a configured pin, then loads the JWK set. Per SPEC.md §4 (metadata)
+// and §12.10, tokens are verified with keys from jwks_uri in that metadata.
+func loadAAuthJWKSSet(jwksClient jwksFetcher, stagePrefix, discoveryURL, pinJwksURI string) (jwk.Set, string, error) {
+	metadata, err := jwksClient.GetMetadata(context.Background(), discoveryURL)
+	if err != nil {
+		return nil, "", &aauthJWKSErr{Stage: stagePrefix + ".metadata.fetch", Detail: err.Error()}
+	}
+	jwksURI, _ := metadata["jwks_uri"].(string)
+	if jwksURI == "" {
+		return nil, "", &aauthJWKSErr{Stage: stagePrefix + ".metadata.parse", Detail: "metadata is missing jwks_uri"}
+	}
+	if pinJwksURI != "" && pinJwksURI != jwksURI {
+		return nil, "", &aauthJWKSErr{
+			Stage:  stagePrefix + ".metadata.allowlist",
+			Detail: fmt.Sprintf("discovered jwks_uri %q does not match configured jwks_uri %q", jwksURI, pinJwksURI),
+		}
+	}
+	set, err := jwksClient.Get(context.Background(), jwksURI)
+	if err != nil {
+		return nil, jwksURI, &aauthJWKSErr{Stage: stagePrefix + ".jwks.fetch", Detail: err.Error()}
+	}
+	return set, jwksURI, nil
+}
 
 type jwksFetcher interface {
 	Get(ctx context.Context, uri string) (jwk.Set, error)
@@ -206,30 +240,45 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 
 		if typ == "aa-agent+jwt" {
 			// Verify the issuer is a known agent server (if configured).
-			var knownAgentServer bool
+			var agentServer config.AgentServer
+			var matchedAS bool
 			for _, as := range rc.AgentServers {
 				if as.Issuer == iss {
-					knownAgentServer = true
+					agentServer = as
+					matchedAS = true
 					break
 				}
 			}
-			if len(rc.AgentServers) > 0 && !knownAgentServer {
+			if len(rc.AgentServers) > 0 && !matchedAS {
 				return fail(identity, scheme, "jwt.agent.issuer", "issuer is not a configured agent server: "+iss, ErrInvalidJWT)
 			}
+			if !isAllowedDiscoveryID(iss) {
+				return fail(identity, scheme, "jwt.agent.issuer", "issuer must use https, or http for localhost", ErrInvalidJWT)
+			}
 
-			// Agent tokens are verified against the agent server's standard
-			// well-known metadata document.
+			// All AAuth JWTs: verify using jwks_uri from issuer well-known metadata (SPEC.md).
 			if dwk != "aauth-agent.json" {
 				return fail(identity, scheme, "jwt.agent.dwk", "expected dwk=aauth-agent.json, got "+dwk, ErrInvalidJWT)
 			}
 			discoveryURL := strings.TrimRight(iss, "/") + "/.well-known/" + dwk
-
-			set, err := jwksClient.Get(context.Background(), discoveryURL)
+			var pinJwksURI string
+			if matchedAS {
+				pinJwksURI = agentServer.JwksURI
+			}
+			set, _, err := loadAAuthJWKSSet(jwksClient, "jwt.agent", discoveryURL, pinJwksURI)
 			if err != nil {
+				var aje *aauthJWKSErr
+				if errors.As(err, &aje) {
+					return fail(identity, scheme, aje.Stage, aje.Detail, ErrInvalidKey)
+				}
 				return fail(identity, scheme, "jwt.agent.jwks.fetch", err.Error(), ErrInvalidKey)
 			}
 
-			agentClaims, err := ParseAndVerifyAgentToken(parsedKey.JWT, set, rc.Issuer)
+			// Align with jwt.agent.issuer: iss is already vetted for discovery; do not
+			// re-require https in Parse when http for localhost/127.0.0.1/::1/*.localhost.
+			// allow_insecure_jwt_issuer relaxes the claim for other optional deployment modes.
+			issOKInJWT := isAllowedDiscoveryID(iss) || rc.AllowInsecureJWTIssuer
+			agentClaims, err := ParseAndVerifyAgentToken(parsedKey.JWT, set, rc.Issuer, issOKInJWT)
 			if err != nil {
 				return fail(identity, scheme, "jwt.agent.verify", err.Error(), err)
 			}
@@ -247,29 +296,42 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 
 		} else if typ == "aa-auth+jwt" {
 			// Verify the issuer is a known auth server (if configured).
-			var knownAuthServer bool
+			var authServer config.AuthServer
+			var matchedAuth bool
 			for _, as := range rc.AuthServers {
 				if as.Issuer == iss {
-					knownAuthServer = true
+					authServer = as
+					matchedAuth = true
 					break
 				}
 			}
-			if len(rc.AuthServers) > 0 && !knownAuthServer {
+			if len(rc.AuthServers) > 0 && !matchedAuth {
 				return fail(identity, scheme, "jwt.auth.issuer", "issuer is not a configured auth server: "+iss, ErrInvalidJWT)
 			}
+			if !isAllowedDiscoveryID(iss) {
+				return fail(identity, scheme, "jwt.auth.issuer", "issuer must use https, or http for localhost", ErrInvalidJWT)
+			}
 
-			// Discover JWKS via {iss}/.well-known/{dwk} per AAuth spec.
+			// jwks_uri from issuer well-known metadata (SPEC.md).
 			if dwk == "" {
 				return fail(identity, scheme, "jwt.auth.dwk", "missing dwk claim", ErrInvalidJWT)
 			}
 			discoveryURL := strings.TrimRight(iss, "/") + "/.well-known/" + dwk
-
-			set, err := jwksClient.Get(context.Background(), discoveryURL)
+			var pinAuthJwks string
+			if matchedAuth {
+				pinAuthJwks = authServer.JwksURI
+			}
+			set, _, err := loadAAuthJWKSSet(jwksClient, "jwt.auth", discoveryURL, pinAuthJwks)
 			if err != nil {
+				var aje *aauthJWKSErr
+				if errors.As(err, &aje) {
+					return fail(identity, scheme, aje.Stage, aje.Detail, ErrInvalidKey)
+				}
 				return fail(identity, scheme, "jwt.auth.jwks.fetch", err.Error(), ErrInvalidKey)
 			}
 
-			authClaims, err := ParseAndVerifyAuthToken(parsedKey.JWT, set, rc.Issuer)
+			issOKInJWT := isAllowedDiscoveryID(iss) || rc.AllowInsecureJWTIssuer
+			authClaims, err := ParseAndVerifyAuthToken(parsedKey.JWT, set, rc.Issuer, issOKInJWT)
 			if err != nil {
 				return fail(identity, scheme, "jwt.auth.verify", err.Error(), err)
 			}
@@ -392,4 +454,19 @@ func isAllowedDiscoveryID(raw string) bool {
 		return false
 	}
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
+}
+
+// issAllowedInAAuthJWT enforces the spec default (https only) or, when allowInsecure is true,
+// the same http host allowlist as discovery URLs (isAllowedDiscoveryID) for local demos.
+func issAllowedInAAuthJWT(iss string, allowInsecure bool) bool {
+	if iss == "" {
+		return false
+	}
+	if strings.HasPrefix(iss, "https://") {
+		return true
+	}
+	if !allowInsecure {
+		return false
+	}
+	return isAllowedDiscoveryID(iss)
 }

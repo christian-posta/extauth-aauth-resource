@@ -97,6 +97,12 @@ resources:
       - aa-agent+jwt
       - aa-auth+jwt
 
+    # iss in embedded JWTs must match the same rules as the jwt.agent/jwt.auth issuer
+    # checks: https, or http for local dev hosts. Parse-time logic follows that, so
+    # http://127.0.0.1/... does not need this flag. Set true only if you add optional
+    # non-standard iss handling later; keep false in production.
+    # allow_insecure_jwt_issuer: false
+
   # --- Minimal second example (common production pattern) -----------------------
   - id: agents-only-mcp
     issuer: https://mcp.example.com

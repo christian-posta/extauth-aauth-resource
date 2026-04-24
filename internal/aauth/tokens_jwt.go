@@ -22,7 +22,7 @@ type AgentTokenClaims struct {
 	CnfJWK string `json:"-"` // RFC 7638 thumbprint of cnf.jwk
 }
 
-func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string) (*AgentTokenClaims, error) {
+func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string, allowInsecureISS bool) (*AgentTokenClaims, error) {
 	// 1. Decode header without verifying to check typ first.
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -72,9 +72,12 @@ func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string) (*A
 		return nil, fmt.Errorf("%w: expected dwk=aauth-agent.json, got %s", ErrInvalidJWT, claims.Dwk)
 	}
 
-	// 5. Validate iss is HTTPS.
-	if !strings.HasPrefix(claims.Iss, "https://") {
-		return nil, fmt.Errorf("%w: iss must be an HTTPS URL", ErrInvalidJWT)
+	// 5. Validate iss (https by default; optional local http when allowInsecureISS).
+	if !issAllowedInAAuthJWT(claims.Iss, allowInsecureISS) {
+		if !allowInsecureISS {
+			return nil, fmt.Errorf("%w: iss must be an HTTPS URL", ErrInvalidJWT)
+		}
+		return nil, fmt.Errorf("%w: iss must be https, or http for a local development host when allow_insecure_jwt_issuer is true", ErrInvalidJWT)
 	}
 
 	// 6. Validate iat (must not be in the future beyond a small skew).
@@ -89,9 +92,11 @@ func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string) (*A
 		return nil, ErrExpiredJWT
 	}
 
-	// 8. Validate audience.
-	if claims.Aud != expectedAud {
-		return nil, fmt.Errorf("%w: audience mismatch: got %s, expected %s", ErrInvalidToken, claims.Aud, expectedAud)
+	// 8. Optional audience. Per AAuth, aa-auth+jwt binds to a resource via aud; aa-agent+jwt
+	// is issued for agent identity and typically has no aud (AAuth-Identity / signing mode). If
+	// present, must equal this resource's issuer (RFC 7519 aud: string or array of strings).
+	if err := checkAgentTokenAudience(claimsMap, expectedAud); err != nil {
+		return nil, err
 	}
 
 	// 9. Extract RFC 7638 thumbprint from cnf.jwk.
@@ -108,4 +113,36 @@ func ParseAndVerifyAgentToken(token string, set jwk.Set, expectedAud string) (*A
 	}
 
 	return claims, nil
+}
+
+// checkAgentTokenAudience enforces that aa-agent+jwt "aud" is either absent, empty, or
+// includes this resource's issuer. Unlike aa-auth+jwt, agent tokens are not
+// resource-scoped by default (see aauth-extauthz-plan: auth tokens verify aud).
+func checkAgentTokenAudience(claimsMap map[string]interface{}, expected string) error {
+	v, ok := claimsMap["aud"]
+	if !ok || v == nil {
+		return nil
+	}
+	switch t := v.(type) {
+	case string:
+		if t == "" {
+			return nil
+		}
+		if t == expected {
+			return nil
+		}
+		return fmt.Errorf("%w: audience mismatch: got %s, expected %s", ErrInvalidToken, t, expected)
+	case []interface{}:
+		if len(t) == 0 {
+			return nil
+		}
+		for _, x := range t {
+			if s, ok := x.(string); ok && s == expected {
+				return nil
+			}
+		}
+		return fmt.Errorf("%w: audience mismatch: got no matching entry for %s", ErrInvalidToken, expected)
+	default:
+		return fmt.Errorf("%w: aud must be a string or array of strings", ErrInvalidJWT)
+	}
 }

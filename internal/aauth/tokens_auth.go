@@ -32,7 +32,7 @@ type AuthTokenClaims struct {
 	CnfJWK string `json:"-"` // RFC 7638 thumbprint of cnf.jwk
 }
 
-func ParseAndVerifyAuthToken(token string, set jwk.Set, expectedAud string) (*AuthTokenClaims, error) {
+func ParseAndVerifyAuthToken(token string, set jwk.Set, expectedAud string, allowInsecureISS bool) (*AuthTokenClaims, error) {
 	// 1. Decode header without verifying to check typ first.
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -91,9 +91,12 @@ func ParseAndVerifyAuthToken(token string, set jwk.Set, expectedAud string) (*Au
 		return nil, fmt.Errorf("%w: expected dwk=aauth-access.json or aauth-person.json, got %s", ErrInvalidJWT, claims.Dwk)
 	}
 
-	// 6. Validate iss is HTTPS.
-	if !strings.HasPrefix(claims.Iss, "https://") {
-		return nil, fmt.Errorf("%w: iss must be an HTTPS URL", ErrInvalidJWT)
+	// 6. Validate iss (https by default; optional local http when allowInsecureISS).
+	if !issAllowedInAAuthJWT(claims.Iss, allowInsecureISS) {
+		if !allowInsecureISS {
+			return nil, fmt.Errorf("%w: iss must be an HTTPS URL", ErrInvalidJWT)
+		}
+		return nil, fmt.Errorf("%w: iss must be https, or http for a local development host when allow_insecure_jwt_issuer is true", ErrInvalidJWT)
 	}
 
 	// 7. Validate iat.

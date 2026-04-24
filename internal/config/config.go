@@ -46,6 +46,8 @@ type ResourceConfigYAML struct {
 	Policy                        PolicyConfigYAML  `yaml:"policy"`
 	AllowedSignatureKeySchemes    []string          `yaml:"allowed_signature_key_schemes"`
 	AllowedJWTTypes               []string          `yaml:"allowed_jwt_types"`
+	// AllowInsecureJWTIssuer: see ResourceConfig.
+	AllowInsecureJWTIssuer bool `yaml:"allow_insecure_jwt_issuer"`
 }
 
 type SigningKeyYAML struct {
@@ -119,5 +121,6 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 		Policy:                        PolicyConfig{Name: c.Policy.Name},
 		AllowedSignatureKeySchemes:    NormalizeAndDedupeTokens(c.AllowedSignatureKeySchemes),
 		AllowedJWTTypes:               NormalizeAndDedupeTokens(c.AllowedJWTTypes),
+		AllowInsecureJWTIssuer:        c.AllowInsecureJWTIssuer,
 	}
 }

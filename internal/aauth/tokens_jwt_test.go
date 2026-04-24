@@ -73,8 +73,30 @@ func TestParseAndVerifyAgentTokenRejectsAudienceMismatch(t *testing.T) {
 	sig := ed25519.Sign(serverPriv, []byte(unsignedToken))
 	token := unsignedToken + "." + base64.RawURLEncoding.EncodeToString(sig)
 
-	_, err = ParseAndVerifyAgentToken(token, set, "https://resource.example.com")
+	_, err = ParseAndVerifyAgentToken(token, set, "https://resource.example.com", false)
 	if err == nil {
 		t.Fatal("expected audience mismatch error")
+	}
+}
+
+func TestCheckAgentTokenAudience(t *testing.T) {
+	t.Parallel()
+	if err := checkAgentTokenAudience(map[string]interface{}{}, "https://r.example"); err != nil {
+		t.Errorf("no aud: %v", err)
+	}
+	if err := checkAgentTokenAudience(map[string]interface{}{"aud": nil}, "https://r.example"); err != nil {
+		t.Errorf("null aud: %v", err)
+	}
+	if err := checkAgentTokenAudience(map[string]interface{}{"aud": "https://r.example"}, "https://r.example"); err != nil {
+		t.Errorf("string match: %v", err)
+	}
+	if err := checkAgentTokenAudience(map[string]interface{}{"aud": "https://other"}, "https://r.example"); err == nil {
+		t.Fatal("expected string mismatch")
+	}
+	if err := checkAgentTokenAudience(map[string]interface{}{"aud": []interface{}{"https://r.example"}}, "https://r.example"); err != nil {
+		t.Errorf("array match: %v", err)
+	}
+	if err := checkAgentTokenAudience(map[string]interface{}{"aud": []interface{}{"https://other"}}, "https://r.example"); err == nil {
+		t.Fatal("expected array mismatch")
 	}
 }

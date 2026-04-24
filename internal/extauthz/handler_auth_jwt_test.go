@@ -42,8 +42,10 @@ func TestHandlerAuthJWT(t *testing.T) {
 	mockJwks := jwksfetch.NewMockClient()
 	set := jwk.NewSet()
 	set.AddKey(authServerKey)
-	// AAuth spec discovery URL: {iss}/.well-known/aauth-access.json
-	mockJwks.Keysets["https://auth.example.com/.well-known/aauth-access.json"] = set
+	// AAuth: well-known metadata at {iss}/.well-known/{dwk} has jwks_uri; load keys from that URL.
+	discoveryURL := "https://auth.example.com/.well-known/aauth-access.json"
+	mockJwks.Metadata[discoveryURL] = map[string]interface{}{"jwks_uri": jwksURI}
+	mockJwks.Keysets[jwksURI] = set
 
 	cfg := &config.Config{}
 	cfg.Resources = []config.ResourceConfigYAML{
