@@ -92,26 +92,39 @@ func (s *Server) handleJWKS(w http.ResponseWriter, r *http.Request, rc *config.R
 		return
 	}
 
-	keyEntry := map[string]interface{}{
-		"kty": "OKP",
-		"crv": "Ed25519",
-		"kid": rc.SigningKey.Kid,
-		"alg": "EdDSA",
-		"use": "sig",
-	}
-
-	if rc.PrivateKey != nil {
-		pubKey := rc.PrivateKey.Public().(ed25519.PublicKey)
-		keyEntry["x"] = base64.RawURLEncoding.EncodeToString(pubKey)
-	}
-
+	keyEntries := s.jwksKeysForIssuer(rc)
 	jwks := map[string]interface{}{
-		"keys": []map[string]interface{}{keyEntry},
+		"keys": keyEntries,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "public, max-age=300")
 	json.NewEncoder(w).Encode(jwks)
+}
+
+func (s *Server) jwksKeysForIssuer(rc *config.ResourceConfig) []map[string]interface{} {
+	resources := s.registry.ByIssuer(rc.Issuer)
+	if len(resources) == 0 {
+		resources = []*config.ResourceConfig{rc}
+	}
+
+	keys := make([]map[string]interface{}, 0, len(resources))
+	for _, resourceConfig := range resources {
+		keyEntry := map[string]interface{}{
+			"kty": "OKP",
+			"crv": "Ed25519",
+			"kid": resourceConfig.SigningKey.Kid,
+			"alg": "EdDSA",
+			"use": "sig",
+		}
+
+		if resourceConfig.PrivateKey != nil {
+			pubKey := resourceConfig.PrivateKey.Public().(ed25519.PublicKey)
+			keyEntry["x"] = base64.RawURLEncoding.EncodeToString(pubKey)
+		}
+		keys = append(keys, keyEntry)
+	}
+	return keys
 }
 
 func Start(listenAddr string, registry *resource.Registry, jwksClient jwksFetcher, engine policy.Engine) {

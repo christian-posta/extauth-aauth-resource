@@ -8,15 +8,17 @@ import (
 )
 
 type Registry struct {
-	mu     sync.RWMutex
-	byID   map[string]*config.ResourceConfig
-	byHost map[string]*config.ResourceConfig
+	mu       sync.RWMutex
+	byID     map[string]*config.ResourceConfig
+	byHost   map[string]*config.ResourceConfig
+	byIssuer map[string][]*config.ResourceConfig
 }
 
 func NewRegistry(cfg *config.Config) (*Registry, error) {
 	r := &Registry{
-		byID:   make(map[string]*config.ResourceConfig),
-		byHost: make(map[string]*config.ResourceConfig),
+		byID:     make(map[string]*config.ResourceConfig),
+		byHost:   make(map[string]*config.ResourceConfig),
+		byIssuer: make(map[string][]*config.ResourceConfig),
 	}
 
 	for _, rcYAML := range cfg.Resources {
@@ -41,6 +43,7 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 			return nil, fmt.Errorf("duplicate resource id: %s", rc.ID)
 		}
 		r.byID[rc.ID] = rc
+		r.byIssuer[rc.Issuer] = append(r.byIssuer[rc.Issuer], rc)
 
 		for _, host := range rc.Hosts {
 			if _, exists := r.byHost[host]; exists {
@@ -83,4 +86,13 @@ func (r *Registry) ByHost(host string) (*config.ResourceConfig, bool) {
 	defer r.mu.RUnlock()
 	rc, ok := r.byHost[host]
 	return rc, ok
+}
+
+func (r *Registry) ByIssuer(issuer string) []*config.ResourceConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	resources := r.byIssuer[issuer]
+	out := make([]*config.ResourceConfig, len(resources))
+	copy(out, resources)
+	return out
 }
