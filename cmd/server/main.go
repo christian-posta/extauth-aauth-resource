@@ -28,9 +28,15 @@ func main() {
 	flag.Parse()
 
 	// Load configuration
+	cfgPath := os.Getenv("AAUTH_CONFIG")
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
+	}
+	if cfgPath == "" {
+		log.Printf("AAUTH_CONFIG is not set; using default in-memory configuration")
+	} else {
+		log.Printf("Loaded configuration from %s", cfgPath)
 	}
 
 	// Use the port from flag if provided, otherwise use config default
@@ -56,6 +62,9 @@ func main() {
 	reg, err := resource.NewRegistry(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create registry: %v", err)
+	}
+	for _, rc := range cfg.Resources {
+		log.Printf("Configured resource id=%q issuer=%q hosts=%v", rc.ID, rc.Issuer, rc.Hosts)
 	}
 
 	engine := policy.NewDefaultEngine()
