@@ -121,7 +121,12 @@ func ParseAndVerifyAuthToken(token string, set jwk.Set, expectedAud string, allo
 		return nil, fmt.Errorf("%w: act.sub is required", ErrInvalidToken)
 	}
 
-	// 11. Extract RFC 7638 thumbprint from cnf.jwk.
+	// 11. At least one of sub or scope MUST be present.
+	if claims.Sub == "" && claims.Scope == "" {
+		return nil, fmt.Errorf("%w: at least one of sub or scope is required", ErrInvalidToken)
+	}
+
+	// 12. Extract RFC 7638 thumbprint from cnf.jwk.
 	if cnf, ok := claimsMap["cnf"].(map[string]interface{}); ok {
 		if jwkMap, ok := cnf["jwk"].(map[string]interface{}); ok {
 			b, err := json.Marshal(jwkMap)

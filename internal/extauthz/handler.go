@@ -64,9 +64,8 @@ func (h *Handler) Check(ctx context.Context, req *pb.CheckRequest) (*pb.CheckRes
 		host := AuthorityForSignature(attrs.GetRequest().GetHttp())
 		rc, ok = h.registry.ByHost(host)
 		if !ok {
-			log.Printf("Non-AAuth route (host: %s), allowing by default", host)
-			// Non-AAuth routes: allow by default
-			return h.allow()
+			log.Printf("No configured resource for host=%s; denying request", host)
+			return h.deny()
 		}
 		log.Printf("Matched host %s to resource %s", host, rc.ID)
 	}

@@ -33,6 +33,7 @@ func TestHandlerChallengeWithToken(t *testing.T) {
 			ID:                "res-2",
 			Issuer:            "https://res.example.com",
 			Hosts:             []string{"res.example.com"},
+			SigningKey:        config.SigningKeyYAML{Kid: "res-key-1"},
 			AllowPseudonymous: false, // Force challenge!
 			SignatureWindow:   60 * time.Second,
 		},

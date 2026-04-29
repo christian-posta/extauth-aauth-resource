@@ -2,6 +2,7 @@ package aauth
 
 import (
 	"encoding/json"
+	"log"
 	"strings"
 	"time"
 
@@ -78,27 +79,27 @@ func (c *Challenge) Response() *pb.CheckResponse {
 		}
 		claims.Aud = ResolveResourceTokenAud(c.Resource)
 
-		tokenStr := "dummy.token.sig"
-		c.ResourceTokenJTI = claims.Jti
-		if len(c.Resource.PrivateKey) > 0 {
+		if len(c.Resource.PrivateKey) == 0 || c.Resource.SigningKey.Kid == "" {
+			log.Printf("resource-token requested but signing key is unavailable for resource=%s", c.Resource.ID)
+		} else {
 			token, err := MintResourceToken(c.Resource, claims, c.Resource.PrivateKey)
-			if err == nil {
-				tokenStr = token
+			if err != nil {
+				log.Printf("failed to mint resource token for resource=%s: %v", c.Resource.ID, err)
+			} else {
 				_, parsedClaims, parseErr := parseJWTUnverified(token)
 				if parseErr == nil {
 					if jti, ok := parsedClaims["jti"].(string); ok {
 						c.ResourceTokenJTI = jti
 					}
 				}
+				// resource-token must be a String (quoted) in the SF dictionary — JWTs contain
+				// dots which are valid Token chars, but the spec explicitly calls for a String type.
+				reqDict = append(reqDict, structfields.DictMember{
+					Name:  "resource-token",
+					Value: structfields.Item{Value: token},
+				})
 			}
 		}
-
-		// resource-token must be a String (quoted) in the SF dictionary — JWTs contain
-		// dots which are valid Token chars, but the spec explicitly calls for a String type.
-		reqDict = append(reqDict, structfields.DictMember{
-			Name:  "resource-token",
-			Value: structfields.Item{Value: tokenStr},
-		})
 	}
 
 	reqHeaderStr, _ := structfields.SerializeDictionary(reqDict)

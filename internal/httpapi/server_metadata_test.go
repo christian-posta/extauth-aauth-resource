@@ -17,12 +17,18 @@ import (
 )
 
 func TestMetadataAuthorizationEndpointDefault(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := &config.Config{
 		Resources: []config.ResourceConfigYAML{
 			{
 				ID:              "res-meta",
 				Issuer:          "https://res.example.com",
 				Hosts:           []string{"res.example.com"},
+				SigningKey:      config.SigningKeyYAML{Kid: "res-key-1"},
 				SignatureWindow: time.Minute,
 			},
 		},
@@ -31,6 +37,8 @@ func TestMetadataAuthorizationEndpointDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rc, _ := reg.ByID("res-meta")
+	rc.PrivateKey = priv
 
 	srv := httpapi.NewServer(reg, jwksfetch.NewMockClient(), policy.NewDefaultEngine())
 	req := httptest.NewRequest(http.MethodGet, "https://res.example.com/.well-known/aauth-resource.json", nil)
@@ -54,14 +62,52 @@ func TestMetadataAuthorizationEndpointDefault(t *testing.T) {
 }
 
 func TestMetadataAuthorizationEndpointOverride(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := &config.Config{
 		Resources: []config.ResourceConfigYAML{
 			{
 				ID:                            "res-meta",
 				Issuer:                        "https://res.example.com",
 				Hosts:                         []string{"res.example.com"},
+				SigningKey:                    config.SigningKeyYAML{Kid: "res-key-1"},
 				SignatureWindow:               time.Minute,
 				AuthorizationEndpointOverride: "https://public.example.com/custom/token",
+			},
+		},
+	}
+	reg, err := resource.NewRegistry(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, _ := reg.ByID("res-meta")
+	rc.PrivateKey = priv
+
+	srv := httpapi.NewServer(reg, jwksfetch.NewMockClient(), policy.NewDefaultEngine())
+	req := httptest.NewRequest(http.MethodGet, "https://res.example.com/.well-known/aauth-resource.json", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	var metadata map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["authorization_endpoint"] != "https://public.example.com/custom/token" {
+		t.Fatalf("authorization_endpoint=%v", metadata["authorization_endpoint"])
+	}
+}
+
+func TestMetadataOmitsAuthorizationEndpointWithoutSigningKey(t *testing.T) {
+	cfg := &config.Config{
+		Resources: []config.ResourceConfigYAML{
+			{
+				ID:              "res-meta",
+				Issuer:          "https://res.example.com",
+				Hosts:           []string{"res.example.com"},
+				SignatureWindow: time.Minute,
 			},
 		},
 	}
@@ -79,8 +125,59 @@ func TestMetadataAuthorizationEndpointOverride(t *testing.T) {
 	if err := json.NewDecoder(rr.Body).Decode(&metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["authorization_endpoint"] != "https://public.example.com/custom/token" {
-		t.Fatalf("authorization_endpoint=%v", metadata["authorization_endpoint"])
+	if _, ok := metadata["authorization_endpoint"]; ok {
+		t.Fatalf("authorization_endpoint should be omitted when the resource cannot mint tokens: %#v", metadata)
+	}
+}
+
+func TestMetadataIncludesOptionalPresentationFields(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Resources: []config.ResourceConfigYAML{
+			{
+				ID:              "res-meta",
+				Issuer:          "https://res.example.com",
+				ClientName:      "Example Resource",
+				LogoURI:         "https://res.example.com/logo.png",
+				LogoDarkURI:     "https://res.example.com/logo-dark.png",
+				LoginEndpoint:   "https://res.example.com/login",
+				Hosts:           []string{"res.example.com"},
+				SigningKey:      config.SigningKeyYAML{Kid: "res-key-1"},
+				SignatureWindow: time.Minute,
+			},
+		},
+	}
+	reg, err := resource.NewRegistry(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rc, _ := reg.ByID("res-meta")
+	rc.PrivateKey = priv
+
+	srv := httpapi.NewServer(reg, jwksfetch.NewMockClient(), policy.NewDefaultEngine())
+	req := httptest.NewRequest(http.MethodGet, "https://res.example.com/.well-known/aauth-resource.json", nil)
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+
+	var metadata map[string]interface{}
+	if err := json.NewDecoder(rr.Body).Decode(&metadata); err != nil {
+		t.Fatal(err)
+	}
+	if metadata["client_name"] != "Example Resource" {
+		t.Fatalf("client_name=%v", metadata["client_name"])
+	}
+	if metadata["logo_uri"] != "https://res.example.com/logo.png" {
+		t.Fatalf("logo_uri=%v", metadata["logo_uri"])
+	}
+	if metadata["logo_dark_uri"] != "https://res.example.com/logo-dark.png" {
+		t.Fatalf("logo_dark_uri=%v", metadata["logo_dark_uri"])
+	}
+	if metadata["login_endpoint"] != "https://res.example.com/login" {
+		t.Fatalf("login_endpoint=%v", metadata["login_endpoint"])
 	}
 }
 

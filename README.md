@@ -107,6 +107,7 @@ jwks_cache:
 resources:
   - id: mcp-api
     issuer: http://localhost:8080
+    client_name: Example MCP API
     hosts:
       - localhost:8080
       - localhost:3001
@@ -123,6 +124,8 @@ resources:
 ```
 
 > **Note on `hosts`**: agentgateway strips the port number before putting the `Host` value into the CheckRequest (e.g. `localhost:3001` becomes `localhost`). You must include the bare hostname alongside any `host:port` forms so the registry lookup succeeds.
+
+The gRPC listener is taken from `listen.grpc`. The legacy `--port` flag still works as an override, but the config file is now the primary source of truth.
 
 ---
 
@@ -151,7 +154,7 @@ binds:
               args: ["-y", "@modelcontextprotocol/server-everything"]
 ```
 
-Without `context.aauth_resource_id` the service falls back to Host-based resource lookup, which also works as long as the `hosts` list in the config includes the incoming host.
+Without `context.aauth_resource_id` the service falls back to Host-based resource lookup, which also works as long as the `hosts` list in the config includes the incoming host. Requests that do not map to a configured resource are denied.
 
 ---
 
@@ -160,12 +163,12 @@ Without `context.aauth_resource_id` the service falls back to Host-based resourc
 **Terminal 1** — AAuth service:
 ```bash
 export AAUTH_CONFIG=aauth-config.yaml
-./aauth-service --port 7070
+./aauth-service
 ```
 
 Expected output:
 ```
-Policy Engine starting on port 7070
+Policy Engine starting on :7070
 This service implements the Envoy ext_authz protocol
 Starting HTTP API on :8080
 ```
@@ -276,10 +279,13 @@ curl -s http://localhost:8080/.well-known/aauth-resource.json | jq .
   "issuer": "http://localhost:8080",
   "jwks_uri": "http://localhost:8080/.well-known/jwks.json",
   "authorization_endpoint": "http://localhost:8080/resource/token",
+  "client_name": "Example MCP API",
   "signature_window": 60,
   "supported_scopes": null
 }
 ```
+
+If a resource does not have a usable signing key, the metadata omits `authorization_endpoint` instead of advertising a broken token-minting endpoint.
 
 ```bash
 # JWKS (public key used to verify resource-tokens the service mints)

@@ -74,11 +74,25 @@ func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request, rc *conf
 	metadata := map[string]interface{}{
 		"issuer":                          rc.Issuer,
 		"jwks_uri":                        rc.Issuer + "/.well-known/jwks.json", // Could be from config but usually derived
-		"authorization_endpoint":          authorizationEndpointForResource(rc),
 		"supported_scopes":                rc.SupportedScopes,
 		"scope_descriptions":              rc.ScopeDescriptions,
 		"additional_signature_components": rc.AdditionalSignatureComponents,
 		"signature_window":                int(rc.SignatureWindow.Seconds()),
+	}
+	if rc.ClientName != "" {
+		metadata["client_name"] = rc.ClientName
+	}
+	if rc.LogoURI != "" {
+		metadata["logo_uri"] = rc.LogoURI
+	}
+	if rc.LogoDarkURI != "" {
+		metadata["logo_dark_uri"] = rc.LogoDarkURI
+	}
+	if rc.LoginEndpoint != "" {
+		metadata["login_endpoint"] = rc.LoginEndpoint
+	}
+	if resourceCanMintTokens(rc) {
+		metadata["authorization_endpoint"] = authorizationEndpointForResource(rc)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -143,4 +157,8 @@ func authorizationEndpointForResource(rc *config.ResourceConfig) string {
 		return rc.AuthorizationEndpointOverride
 	}
 	return rc.Issuer + "/resource/token"
+}
+
+func resourceCanMintTokens(rc *config.ResourceConfig) bool {
+	return rc != nil && len(rc.PrivateKey) > 0 && rc.SigningKey.Kid != ""
 }

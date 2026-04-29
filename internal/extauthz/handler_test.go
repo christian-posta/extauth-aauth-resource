@@ -278,3 +278,41 @@ func TestHandlerReturnsInvalidInputForMissingSignatureKeyCoverage(t *testing.T) 
 		t.Fatal("expected required_input in Signature-Error")
 	}
 }
+
+func TestHandlerDeniesUnknownHostWithoutResourceMapping(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Resources = []config.ResourceConfigYAML{
+		{
+			ID:                "res-1",
+			Issuer:            "https://res.example.com",
+			Hosts:             []string{"res.example.com"},
+			AllowPseudonymous: true,
+			SignatureWindow:   60 * time.Second,
+		},
+	}
+
+	h, err := extauthz.NewHandler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := &pb.CheckRequest{
+		Attributes: &pb.AttributeContext{
+			Request: &pb.AttributeContext_Request{
+				Http: &pb.AttributeContext_HttpRequest{
+					Method: "GET",
+					Host:   "unknown.example.com",
+					Path:   "/api",
+				},
+			},
+		},
+	}
+
+	resp, err := h.Check(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Status.Code != 7 {
+		t.Fatalf("expected PERMISSION_DENIED, got %v", resp.Status.Code)
+	}
+}

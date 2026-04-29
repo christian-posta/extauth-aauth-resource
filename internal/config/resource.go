@@ -9,6 +9,10 @@ import (
 type ResourceConfig struct {
 	ID                            string
 	Issuer                        string
+	ClientName                    string
+	LogoURI                       string
+	LogoDarkURI                   string
+	LoginEndpoint                 string
 	Hosts                         []string
 	SigningKey                    SigningKey
 	PrivateKey                    ed25519.PrivateKey // Added to keep the loaded key in memory

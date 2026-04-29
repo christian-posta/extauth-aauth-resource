@@ -32,6 +32,10 @@ type Config struct {
 type ResourceConfigYAML struct {
 	ID                            string            `yaml:"id"`
 	Issuer                        string            `yaml:"issuer"`
+	ClientName                    string            `yaml:"client_name"`
+	LogoURI                       string            `yaml:"logo_uri"`
+	LogoDarkURI                   string            `yaml:"logo_dark_uri"`
+	LoginEndpoint                 string            `yaml:"login_endpoint"`
 	Hosts                         []string          `yaml:"hosts"`
 	SigningKey                    SigningKeyYAML    `yaml:"signing_key"`
 	SignatureWindow               time.Duration     `yaml:"signature_window"`
@@ -120,6 +124,10 @@ func (c *ResourceConfigYAML) ToDomain() *ResourceConfig {
 	return &ResourceConfig{
 		ID:                            c.ID,
 		Issuer:                        c.Issuer,
+		ClientName:                    c.ClientName,
+		LogoURI:                       c.LogoURI,
+		LogoDarkURI:                   c.LogoDarkURI,
+		LoginEndpoint:                 c.LoginEndpoint,
 		Hosts:                         c.Hosts,
 		SigningKey:                    SigningKey{Kid: c.SigningKey.Kid, Alg: c.SigningKey.Alg, PrivateKeyFile: c.SigningKey.PrivateKeyFile},
 		SignatureWindow:               c.SignatureWindow,

@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"os"
 	"testing"
 	"time"
 
@@ -98,6 +101,11 @@ func newMode3Handler(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, ed255
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, resourcePriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceKeyFile := writeTempEd25519Key(t, resourcePriv)
 
 	authServerKey, err := jwk.FromRaw(authServerPub)
 	if err != nil {
@@ -119,6 +127,7 @@ func newMode3Handler(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, ed255
 				ID:              "res-mode3",
 				Issuer:          "https://res.example.com",
 				Hosts:           []string{"res.example.com"},
+				SigningKey:      config.SigningKeyYAML{Kid: "resource-key-1", PrivateKeyFile: resourceKeyFile},
 				SignatureWindow: 60 * time.Second,
 				Access:          config.AccessConfigYAML{Require: "auth-token"},
 				PersonServer:    config.PersonServerYAML{Issuer: "https://ps.example.com", JwksURI: "https://ps.example.com/jwks.json"},
@@ -136,6 +145,21 @@ func newMode3Handler(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey, ed255
 	engine := policy.NewDefaultEngine()
 	aauthHandler := extauthz.NewAAuthHandler(engine, mockJwks)
 	return agentPub, agentPriv, authServerPriv, extauthz.NewTestHandler(reg, aauthHandler)
+}
+
+func writeTempEd25519Key(t *testing.T, priv ed25519.PrivateKey) string {
+	t.Helper()
+
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	path := t.TempDir() + "/resource_key.pem"
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func mode3AgentJWT(t *testing.T, agentPub ed25519.PublicKey, signer ed25519.PrivateKey) string {

@@ -32,10 +32,20 @@ func NewRegistry(cfg *config.Config) (*Registry, error) {
 		if rc.SigningKey.PrivateKeyFile != "" {
 			privKey, err := LoadPrivateKey(rc.SigningKey.PrivateKeyFile)
 			if err != nil {
-				// We don't fail hard here for testing purposes, but we log it
+				if config.RequiresResourceTokenSigningKey(rc) {
+					return nil, fmt.Errorf("resource %s requires a signing key but failed to load private key %q: %w", rc.ID, rc.SigningKey.PrivateKeyFile, err)
+				}
 				fmt.Printf("Warning: failed to load private key for resource %s: %v\n", rc.ID, err)
 			} else {
 				rc.PrivateKey = privKey
+			}
+		}
+		if config.RequiresResourceTokenSigningKey(rc) {
+			if len(rc.PrivateKey) == 0 {
+				return nil, fmt.Errorf("resource %s requires a signing key to mint resource tokens", rc.ID)
+			}
+			if rc.SigningKey.Kid == "" {
+				return nil, fmt.Errorf("resource %s requires signing_key.kid to mint resource tokens", rc.ID)
 			}
 		}
 

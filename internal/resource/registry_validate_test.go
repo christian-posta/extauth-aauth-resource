@@ -28,3 +28,22 @@ func TestNewRegistryRejectsInvalidAllowedSchemes(t *testing.T) {
 		t.Fatal("expected validation error")
 	}
 }
+
+func TestNewRegistryRejectsAuthTokenResourceWithoutSigningKey(t *testing.T) {
+	cfg := &config.Config{
+		Resources: []config.ResourceConfigYAML{
+			{
+				ID:              "mode3-resource",
+				Issuer:          "https://x.example",
+				Hosts:           []string{"x.example"},
+				SignatureWindow: time.Minute,
+				Access:          config.AccessConfigYAML{Require: "auth-token"},
+				PersonServer:    config.PersonServerYAML{Issuer: "https://ps.example.com"},
+			},
+		},
+	}
+	_, err := NewRegistry(cfg)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+}

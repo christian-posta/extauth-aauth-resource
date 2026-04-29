@@ -26,6 +26,11 @@ resources:
 
     # Canonical issuer URL for this resource (resource metadata, tokens, audience checks).
     issuer: https://resource.example.com
+    # Optional presentation metadata published at /.well-known/aauth-resource.json.
+    client_name: Example Resource
+    # logo_uri: https://resource.example.com/logo.png
+    # logo_dark_uri: https://resource.example.com/logo-dark.png
+    # login_endpoint: https://resource.example.com/login
 
     # Host header values that map to this resource when aauth_resource_id is not sent.
     hosts:
@@ -62,6 +67,7 @@ resources:
 
     # Optional override for the metadata authorization_endpoint value.
     # When omitted, metadata defaults to <issuer>/resource/token.
+    # The field is only published when the resource has a usable signing key.
     # authorization_endpoint_override: https://resource.example.com/resource/token
 
     # Pinned Person Server for Mode 3 resources. Required when access.require=auth-token.

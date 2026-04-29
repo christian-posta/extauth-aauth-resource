@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +37,7 @@ func TestHandleResourceToken(t *testing.T) {
 			ID:                "res-token",
 			Issuer:            "https://res.example.com",
 			Hosts:             []string{"res.example.com"},
+			SigningKey:        config.SigningKeyYAML{Kid: "res-key-1"},
 			AllowPseudonymous: true,
 			SignatureWindow:   60 * time.Second,
 			PersonServer:      config.PersonServerYAML{Issuer: "https://ps.example.com"},
@@ -116,11 +120,13 @@ func TestHandleResourceTokenSpecBodyContract(t *testing.T) {
 	}
 
 	cfg := &config.Config{}
+	keyFile := writeTempEd25519Key(t, priv)
 	cfg.Resources = []config.ResourceConfigYAML{
 		{
 			ID:                "res-token",
 			Issuer:            "https://res.example.com",
 			Hosts:             []string{"res.example.com"},
+			SigningKey:        config.SigningKeyYAML{Kid: "res-key-1", PrivateKeyFile: keyFile},
 			AllowPseudonymous: true,
 			SignatureWindow:   60 * time.Second,
 			Access:            config.AccessConfigYAML{Require: "auth-token"},
@@ -206,6 +212,21 @@ func TestHandleResourceTokenSpecBodyContract(t *testing.T) {
 	if claims["scope"] != "data.read" {
 		t.Fatalf("scope=%v", claims["scope"])
 	}
+}
+
+func writeTempEd25519Key(t *testing.T, priv ed25519.PrivateKey) string {
+	t.Helper()
+
+	der, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+	path := t.TempDir() + "/resource_key.pem"
+	if err := os.WriteFile(path, pemBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func decodeJWTClaims(token string) (map[string]interface{}, error) {

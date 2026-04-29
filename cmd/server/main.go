@@ -21,7 +21,7 @@ import (
 )
 
 var (
-	port = flag.Int("port", 7070, "The server port")
+	port = flag.Int("port", 0, "Deprecated: override the gRPC listen port")
 )
 
 func main() {
@@ -39,14 +39,19 @@ func main() {
 		log.Printf("Loaded configuration from %s", cfgPath)
 	}
 
-	// Use the port from flag if provided, otherwise use config default
+	grpcAddr := cfg.Listen.GRPC
+	if grpcAddr == "" {
+		if cfg.Port != 0 {
+			grpcAddr = net.JoinHostPort("", fmt.Sprintf("%d", cfg.Port))
+		} else {
+			grpcAddr = ":7070"
+		}
+	}
 	if *port != 0 {
-		cfg.Port = *port
-	} else if cfg.Port == 0 {
-		cfg.Port = 7070
+		grpcAddr = net.JoinHostPort("", fmt.Sprintf("%d", *port))
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Port))
+	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -89,9 +94,9 @@ func main() {
 		}
 	}()
 
-	log.Printf("Policy Engine starting on port %d", cfg.Port)
+	log.Printf("Policy Engine starting on %s", grpcAddr)
 	log.Printf("This service implements the Envoy ext_authz protocol")
-	log.Printf("Configure AgentGateway to use: ext_authz: { target: 'localhost:%d' }", cfg.Port)
+	log.Printf("Configure AgentGateway to use: ext_authz: { target: '%s' }", lis.Addr().String())
 
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)

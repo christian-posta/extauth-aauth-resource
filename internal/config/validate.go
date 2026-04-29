@@ -68,6 +68,13 @@ func ValidateResource(rc *ResourceConfig) error {
 	return validateAccess(rc)
 }
 
+func RequiresResourceTokenSigningKey(rc *ResourceConfig) bool {
+	if rc == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(rc.Access.Require), "auth-token")
+}
+
 func validateSignatureKeySchemes(rc *ResourceConfig) error {
 	for _, s := range rc.AllowedSignatureKeySchemes {
 		if _, ok := allowedSchemes[s]; !ok {
