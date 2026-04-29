@@ -150,4 +150,28 @@ func TestHandlerJwksURI(t *testing.T) {
 	if !foundLevel || !foundAgent {
 		t.Errorf("missing expected headers. level=%v agent=%v", foundLevel, foundAgent)
 	}
+
+	dm := resp.GetDynamicMetadata()
+	if dm == nil {
+		t.Fatal("expected CheckResponse.dynamic_metadata for jwks_uri")
+	}
+	f := dm.GetFields()
+	if f["level"].GetStringValue() != "identified" {
+		t.Errorf("dynamic_metadata.level: got %v", f["level"])
+	}
+	if f["scheme"].GetStringValue() != "jwks_uri" {
+		t.Errorf("dynamic_metadata.scheme: got %v", f["scheme"])
+	}
+	if f["issuer"].GetStringValue() != agentID {
+		t.Errorf("dynamic_metadata.issuer: got %v", f["issuer"])
+	}
+	if f["agent_server"].GetStringValue() != agentID {
+		t.Errorf("dynamic_metadata.agent_server: got %v", f["agent_server"])
+	}
+	if f["key_id"].GetStringValue() != "as-key-1" {
+		t.Errorf("dynamic_metadata.key_id: got %v", f["key_id"])
+	}
+	if f["jkt"].GetStringValue() == "" {
+		t.Errorf("dynamic_metadata.jkt missing")
+	}
 }

@@ -19,7 +19,7 @@ Implements:
 - **Identity Levels**: `pseudonymous` (inline bare key), `identified` (agent+jwt or jwks_uri), `authorized` (auth+jwt)
 - **AAuth Challenges**: Generates `AAuth-Requirement` 401 responses; automatically mints and embeds `resource-token`s when the agent has provided signing-key material
 - **JWKS Discovery**: Fetches agent/auth server keys via `{issuer}/.well-known/{dwk}` per the AAuth spec
-- **ExtAuthZ dynamic metadata**: On allow with `aa-auth+jwt`, the gRPC `CheckResponse` includes `dynamic_metadata` (agent, scope, `act`, `sub`) for downstream CEL rules in AgentGateway
+- **ExtAuthZ dynamic metadata**: On allow, the gRPC `CheckResponse` includes level-aware `dynamic_metadata` for downstream CEL rules in AgentGateway
 
 ## Access Modes
 
@@ -393,7 +393,7 @@ On a successful auth check the service adds these headers to the upstream reques
 |--------|-------------|---------|
 | `x-aauth-level` | Always | `pseudonymous`, `identified`, or `authorized` |
 | `x-aauth-jkt` | Always | RFC 7638 SHA-256 JWK thumbprint of the signing key |
-| `x-aauth-agent-server` | `identified`/`authorized` | Issuer URL of the agent server |
+| `x-aauth-agent-server` | `identified`/`authorized` | Agent server issuer for identity tokens/discovery, or authorized agent identifier from an auth token |
 | `x-aauth-delegate` | `identified`/`authorized` | `sub` claim from the agent/auth token |
 | `x-aauth-scope` | `authorized` | Space-separated granted scopes |
 | `x-aauth-txn` | `authorized`, if present | Transaction ID from the auth token |
@@ -402,27 +402,41 @@ On a successful auth check the service adds these headers to the upstream reques
 
 ## ExtAuthZ dynamic metadata and CEL (AgentGateway)
 
-This service speaks **gRPC** ext_authz (Envoy-compatible `Check` / `CheckResponse`). When a request is allowed after verifying an **`aa-auth+jwt`** (`x-aauth-level: authorized`), the response sets **`CheckResponse.dynamic_metadata`** as a `google.protobuf.Struct`. AgentGateway exposes that object to local authorization (CEL) as the **`extauthz`** variable, so you can enforce route-level rules on decoded claims without re-parsing the JWT downstream.
+This service speaks **gRPC** ext_authz (Envoy-compatible `Check` / `CheckResponse`). When a request is allowed after verifying AAuth identity material, the response sets **`CheckResponse.dynamic_metadata`** as a `google.protobuf.Struct`. AgentGateway exposes that object to local authorization (CEL) as the **`extauthz`** variable, so you can enforce route-level rules without re-parsing identity headers or JWTs downstream.
 
-Dynamic metadata is **not** set for `aa-agent+jwt`, `jwks_uri`, or `hwk` paths (identity-only success); it applies only to the **auth-token** success path.
+Dynamic metadata is level-aware. `authorized` requests include auth-token details such as `agent`, `scope`, `act`, and `sub`. `identified` requests include identity-token or discovery details such as `agent_server`, `issuer`, and `sub` when available. `pseudonymous` requests intentionally expose only low-trust key identity details.
 
 | Key | Type | Meaning |
 |-----|------|---------|
-| `agent` | string | Agent identifier from the JWT `agent` claim |
-| `scope` | string | OAuth-style scope string from the JWT `scope` claim (same name as in the token) |
-| `act` | object | RFC 8693 actor; use `act.sub` in CEL |
-| `sub` | string | Delegate subject from the JWT `sub` claim (omitted from the struct if empty) |
+| `level` | string | Identity level: `pseudonymous`, `identified`, or `authorized` |
+| `scheme` | string | `Signature-Key` scheme: `hwk`, `jwks_uri`, or `jwt` |
+| `token_type` | string | JWT `typ` for `jwt` scheme requests, such as `aa-agent+jwt` or `aa-auth+jwt` |
+| `issuer` | string | JWT `iss`, or `jwks_uri` discovery `id` |
+| `key_id` | string | `kid` from `Signature-Key` or JWT header when known |
+| `jkt` | string | RFC 7638 SHA-256 thumbprint of the signing or bound key |
+| `agent_server` | string | Agent server issuer for `identified` requests (`aa-agent+jwt` or `jwks_uri`) |
+| `agent` | string | Agent identifier from the `aa-auth+jwt` `agent` claim |
+| `scope` | string | OAuth-style scope string from the `aa-auth+jwt` `scope` claim |
+| `txn` | string | Transaction ID from the `aa-auth+jwt` `txn` claim |
+| `act` | object | RFC 8693 actor from `aa-auth+jwt`; use `act.sub` in CEL |
+| `sub` | string | JWT subject when present (`aa-agent+jwt` or `aa-auth+jwt`) |
 
 Example CEL rules (exact builtins and string helpers depend on your AgentGateway / CEL version):
 
 ```yaml
 authorization:
   rules:
-    # Require a non-empty delegate subjecnt
+    # Require a non-empty delegate subject from a JWT-backed request
     - "extauthz.sub != ''"
 
-    # Restrict to a known agent URI
+    # Restrict to a known authorized agent URI
     - "extauthz.agent == 'aauth:local@agents.example.com'"
+
+    # Allow identity-only requests from a known agent server
+    - "extauthz.level == 'identified' && extauthz.agent_server == 'https://agents.example.com'"
+
+    # Treat pseudonymous requests as key-bound only
+    - "extauthz.level == 'pseudonymous' && extauthz.jkt != ''"
 
     # Scope is a single string from the JWT (often space-separated OAuth scopes); exact match:
     - "extauthz.scope == 'read:data write:data'"

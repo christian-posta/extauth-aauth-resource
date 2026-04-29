@@ -80,6 +80,7 @@ func TestHandlerAuthJWT(t *testing.T) {
 		"aud":   "https://res.example.com",
 		"agent": agentID,
 		"scope": "read:data write:data",
+		"txn":   "txn-123",
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"act":   map[string]interface{}{"sub": agentID},
@@ -202,6 +203,24 @@ func TestHandlerAuthJWT(t *testing.T) {
 		t.Fatal("expected CheckResponse.dynamic_metadata for aa-auth+jwt")
 	}
 	f := dm.GetFields()
+	if f["level"].GetStringValue() != "authorized" {
+		t.Errorf("dynamic_metadata.level: got %v", f["level"])
+	}
+	if f["scheme"].GetStringValue() != "jwt" {
+		t.Errorf("dynamic_metadata.scheme: got %v", f["scheme"])
+	}
+	if f["token_type"].GetStringValue() != "aa-auth+jwt" {
+		t.Errorf("dynamic_metadata.token_type: got %v", f["token_type"])
+	}
+	if f["issuer"].GetStringValue() != "https://auth.example.com" {
+		t.Errorf("dynamic_metadata.issuer: got %v", f["issuer"])
+	}
+	if f["key_id"].GetStringValue() != "as-key-2" {
+		t.Errorf("dynamic_metadata.key_id: got %v", f["key_id"])
+	}
+	if f["jkt"].GetStringValue() == "" {
+		t.Errorf("dynamic_metadata.jkt missing")
+	}
 	if f["agent"].GetStringValue() != agentID {
 		t.Errorf("dynamic_metadata.agent: want %q, got %v", agentID, f["agent"])
 	}
@@ -210,6 +229,9 @@ func TestHandlerAuthJWT(t *testing.T) {
 	}
 	if f["scope"].GetStringValue() != "read:data write:data" {
 		t.Errorf("dynamic_metadata.scope: got %v", f["scope"])
+	}
+	if f["txn"].GetStringValue() != "txn-123" {
+		t.Errorf("dynamic_metadata.txn: got %v", f["txn"])
 	}
 	act := f["act"].GetStructValue()
 	if act == nil {

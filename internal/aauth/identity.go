@@ -1,9 +1,9 @@
 package aauth
 
 import (
+	pb "aauth-service/gen/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/wrapperspb"
-	pb "aauth-service/gen/proto"
 )
 
 type Level string
@@ -16,6 +16,10 @@ const (
 
 type Identity struct {
 	Level       Level
+	Scheme      string
+	TokenType   string
+	Issuer      string
+	KeyID       string
 	AgentServer string
 	Delegate    string
 	Scope       string
@@ -47,18 +51,41 @@ func ToUpstreamHeaders(id Identity) []*pb.HeaderValueOption {
 	return headers
 }
 
-// ExtAuthzDynamicMetadata builds ext_authz dynamic metadata for downstream CEL (e.g. extauthz.agent)
-// when the caller presented a valid aa-auth+jwt (LevelAuthorized). Returns nil for other levels.
+// ExtAuthzDynamicMetadata builds ext_authz dynamic metadata for downstream CEL.
 func ExtAuthzDynamicMetadata(id Identity) (*structpb.Struct, error) {
-	if id.Level != LevelAuthorized {
+	if id.Level == "" {
 		return nil, nil
 	}
-	fields := map[string]interface{}{}
-	if id.AgentServer != "" {
+	fields := map[string]interface{}{
+		"level": string(id.Level),
+	}
+	if id.Scheme != "" {
+		fields["scheme"] = id.Scheme
+	}
+	if id.TokenType != "" {
+		fields["token_type"] = id.TokenType
+	}
+	if id.Issuer != "" {
+		fields["issuer"] = id.Issuer
+	}
+	if id.KeyID != "" {
+		fields["key_id"] = id.KeyID
+	}
+	if id.JKT != "" {
+		fields["jkt"] = id.JKT
+	}
+	if id.Level == LevelAuthorized && id.AgentServer != "" {
+		// Preserve the original aa-auth+jwt metadata contract.
 		fields["agent"] = id.AgentServer
+	}
+	if id.Level == LevelIdentified && id.AgentServer != "" {
+		fields["agent_server"] = id.AgentServer
 	}
 	if id.Scope != "" {
 		fields["scope"] = id.Scope
+	}
+	if id.Txn != "" {
+		fields["txn"] = id.Txn
 	}
 	if id.ActSub != "" {
 		fields["act"] = map[string]interface{}{"sub": id.ActSub}

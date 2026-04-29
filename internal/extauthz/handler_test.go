@@ -155,6 +155,25 @@ func TestHandler(t *testing.T) {
 	if !foundLevel {
 		t.Errorf("expected x-aauth-level header")
 	}
+
+	expectedJKT, err := aauth.ExtractJWKThumbprint(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dm := respSigned.GetDynamicMetadata()
+	if dm == nil {
+		t.Fatal("expected CheckResponse.dynamic_metadata for hwk")
+	}
+	f := dm.GetFields()
+	if f["level"].GetStringValue() != "pseudonymous" {
+		t.Errorf("dynamic_metadata.level: got %v", f["level"])
+	}
+	if f["scheme"].GetStringValue() != "hwk" {
+		t.Errorf("dynamic_metadata.scheme: got %v", f["scheme"])
+	}
+	if f["jkt"].GetStringValue() != expectedJKT {
+		t.Errorf("dynamic_metadata.jkt: want %q, got %v", expectedJKT, f["jkt"])
+	}
 }
 
 func TestHandlerReturnsInvalidInputForMissingSignatureKeyCoverage(t *testing.T) {

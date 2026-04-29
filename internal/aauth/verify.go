@@ -94,9 +94,12 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		return fail(Identity{}, "", "signature-key.parse", err.Error(), ErrInvalidSignature)
 	}
 
-	var pubKey ed25519.PublicKey
-	var identity Identity
 	scheme := string(parsedKey.Scheme)
+	var pubKey ed25519.PublicKey
+	identity := Identity{
+		Scheme: scheme,
+		KeyID:  parsedKey.KeyID,
+	}
 
 	if len(rc.AllowedSignatureKeySchemes) > 0 {
 		if !stringInSlice(scheme, rc.AllowedSignatureKeySchemes) {
@@ -214,7 +217,8 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 
 		pubKey = edKey
 		identity.Level = LevelIdentified
-		identity.AgentServer = agentServer.Issuer
+		identity.Issuer = parsedKey.ID
+		identity.AgentServer = parsedKey.ID
 
 		jktBytes, _ := key.Thumbprint(crypto.SHA256)
 		identity.JKT = base64.RawURLEncoding.EncodeToString(jktBytes)
@@ -231,8 +235,14 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		}
 
 		typ, _ := jwtHeader["typ"].(string)
+		kid, _ := jwtHeader["kid"].(string)
 		iss, _ := jwtClaimsMap["iss"].(string)
 		dwk, _ := jwtClaimsMap["dwk"].(string)
+		identity.TokenType = typ
+		identity.Issuer = iss
+		if identity.KeyID == "" {
+			identity.KeyID = kid
+		}
 
 		if len(rc.AllowedJWTTypes) > 0 && !stringInSlice(strings.ToLower(typ), rc.AllowedJWTTypes) {
 			return fail(identity, scheme, "config.jwt_typ", "jwt typ not allowed for this resource: "+typ, ErrDisallowedJWTType)
