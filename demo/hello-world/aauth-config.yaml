@@ -1,0 +1,56 @@
+# AAuth resource-side ExtAuthZ config for the hello-world walkthrough.
+# See docs/hello-world.md.
+#
+#   gRPC :7070  — agentgateway ext_authz
+#   HTTP :8090  — /.well-known/aauth-resource.json + /.well-known/jwks.json
+#
+# The agent-client at http://127.0.0.1:9099 is registered as a trusted agent
+# server. allow_insecure_jwt_issuer enables aa-agent+jwt mode for localhost.
+listen:
+  grpc: ":7070"
+  http: ":8090"
+
+jwks_cache:
+  # Short TTL keeps iteration painless — each agent-client run generates fresh
+  # keys, so a stale JWKS cache would otherwise fail kid lookup until expiry.
+  success_ttl: 5s
+  error_ttl: 5s
+  max_entries: 1000
+
+resources:
+  - id: hello-world-api
+    issuer: "http://localhost:8090"
+    client_name: Hello World API
+    hosts:
+      - localhost          # bare hostname — agentgateway strips the port
+      - localhost:3001     # request as it arrives at agentgateway
+      - localhost:8090     # direct access to the resource metadata endpoints
+
+    signing_key:
+      kid: rsk-hello
+      alg: EdDSA
+      private_key_file: demo/hello-world/resource_key.pem
+
+    signature_window: 60s
+    strip_signature_headers: true
+    allow_pseudonymous: false
+
+    access:
+      require: identity
+
+    agent_servers:
+      - issuer: "http://127.0.0.1:9099"
+        jwks_uri: "http://127.0.0.1:9099/.well-known/jwks.json"
+
+    allowed_signature_key_schemes:
+      - jwks_uri
+      - jwt
+    allowed_jwt_types:
+      - aa-agent+jwt
+
+    # Required so the demo agent-client's http://127.0.0.1:9099 is accepted as
+    # an aa-agent+jwt issuer. In production this stays false (https only).
+    allow_insecure_jwt_issuer: true
+
+    policy:
+      name: default

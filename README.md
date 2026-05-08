@@ -10,6 +10,25 @@ Implements:
 > **Looking for the standalone Go library?** The core AAuth protocol logic (signature verification, JWT token validation, challenge building) is also available as a transport-agnostic library with no gRPC or Envoy dependencies:
 > [`github.com/christian-posta/aauth-go`](https://github.com/christian-posta/aauth-go)
 
+---
+
+## Getting Started
+
+| Goal | Guide |
+|------|-------|
+| **End-to-end hello world** — run the resource service + agentgateway + a Go agent client that proves identity at the `identified` level (`jwks_uri` and `aa-agent+jwt` schemes) | [docs/hello-world.md](docs/hello-world.md) |
+| **Mode 3 (authorized)** — three-party flow where an Access Server issues an `aa-auth+jwt` after the agent exchanges a resource-token | [docs/mode3.md](docs/mode3.md) |
+| **Reference config** — every supported YAML option with inline comments | [aauth-config.example.yaml](aauth-config.example.yaml) |
+
+```bash
+# Build everything, then follow docs/hello-world.md
+make build build-agent-client
+```
+
+Prerequisites: Go 1.24+, [`agentgateway`](https://github.com/agentgateway/agentgateway) on `$PATH`, free ports `3001 7070 8090 9099`.
+
+---
+
 ## Features
 
 - **Multi-Tenant**: A single deployment can protect multiple distinct APIs, identified either by `aauth_resource_id` in agentgateway's `contextExtensions` or by Host header.
@@ -29,22 +48,6 @@ Resources can now be configured independently for either Mode 1 or Mode 3:
 - `access.require: auth-token` enables Mode 3. A valid Mode 1 request is challenged with `AAuth-Requirement: requirement=auth-token; resource-token="..."` until the caller retries with an `aa-auth+jwt`.
 
 If `access.require` is omitted, it defaults to `identity`, so existing Mode 1 configurations continue to work unchanged.
-
-## Mode 3 Quick Start
-
-For a local three-party walkthrough with a stub Person Server:
-
-```bash
-bash demo/test-mode3.sh
-```
-
-That script starts:
-
-- the AAuth resource service on `127.0.0.1:17070` / `127.0.0.1:18090`
-- a local stub Person Server on `127.0.0.1:9191`
-- a driver that performs the two-call Mode 3 flow end-to-end
-
-For a deeper reference, see [docs/mode3.md](docs/mode3.md).
 
 ## How to Test End-to-End
 
@@ -479,6 +482,7 @@ Structured JSON decision log on stdout for every check:
 | Tool | Purpose |
 |------|---------|
 | `go run ./cmd/generate-key` or `make generate-key` | Generate an Ed25519 keypair as PEM files |
-| `go run ./cmd/sign-request` or `make build-sign-request` | Generate a signed `curl` command for testing |
+| `go run ./cmd/sign-request` or `make build-sign-request` | Generate a signed `curl` command for testing (pseudonymous `hwk` scheme) |
+| `go run ./cmd/agent-client` or `make build-agent-client` | All-in-one demo agent client; hosts well-known endpoints and signs requests in `jwks_uri` or `aa-agent+jwt` mode (see [docs/hello-world.md](docs/hello-world.md)) |
 | `go run ./cmd/debug-extauthz` | gRPC inspector that dumps every CheckRequest (listens on `:7071`) |
 | `go run ./cmd/integration-test` | Direct gRPC integration test against a running service |

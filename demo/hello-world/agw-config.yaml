@@ -1,0 +1,20 @@
+# agentgateway config for the hello-world walkthrough.
+# See docs/hello-world.md.
+#
+# Listens on :3001, delegates auth to localhost:7070 (aauth-service), and
+# proxies to the agent-client's /echo endpoint on 127.0.0.1:9099. The same
+# binary serves /.well-known/aauth-agent.json + /.well-known/jwks.json, so
+# the demo runs with no external backend.
+binds:
+  - port: 3001
+    listeners:
+      - routes:
+          - policies:
+              extAuthz:
+                host: "localhost:7070"
+                protocol:
+                  grpc:
+                    context:
+                      aauth_resource_id: "hello-world-api"
+            backends:
+              - host: "127.0.0.1:9099"

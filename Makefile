@@ -1,4 +1,4 @@
-.PHONY: help build build-sign-request generate-key run clean generate deps
+.PHONY: help build build-sign-request build-agent-client generate-key run clean generate deps
 
 # Default target
 help:
@@ -31,6 +31,10 @@ build: deps
 build-sign-request: deps
 	go build -o sign-request ./cmd/sign-request
 
+# Build the all-in-one demo agent client (see docs/hello-world.md)
+build-agent-client: deps
+	go build -o agent-client ./cmd/agent-client
+
 # Generate Ed25519 keypair for resource signing
 generate-key:
 	go run ./cmd/generate-key
@@ -41,7 +45,7 @@ run: build
 
 # Clean up
 clean:
-	rm -f aauth-service sign-request
+	rm -f aauth-service sign-request agent-client
 	rm -rf gen/
 
 # Check if protoc is installed
