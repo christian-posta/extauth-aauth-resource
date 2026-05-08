@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"aauth-service/pkg/aauth/headers"
 	"aauth-service/pkg/httpsig/structfields"
 )
 
@@ -99,5 +100,104 @@ func TestChallengeResponseAuthTokenRequirement(t *testing.T) {
 	}
 	if time.Unix(int64(exp), 0).Sub(time.Unix(int64(iat), 0)) > 5*time.Minute {
 		t.Fatalf("exp-iat exceeded 5m: %v", time.Unix(int64(exp), 0).Sub(time.Unix(int64(iat), 0)))
+	}
+}
+
+func TestChallengeExplicitRequirementsAuthToken(t *testing.T) {
+	opts := ChallengeOptions{
+		Requirements: []headers.Requirement{
+			headers.AuthTokenReq{ResourceToken: "eyJ.test.sig"},
+		},
+	}
+	cr := NewChallenge(opts, nil, nil, false).Build()
+
+	vals := cr.Headers["AAuth-Requirement"]
+	if len(vals) == 0 {
+		t.Fatal("expected AAuth-Requirement header")
+	}
+	dict, err := structfields.ParseDictionary(vals[0])
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	reqVal, ok := dict.Get("requirement")
+	if !ok {
+		t.Fatal("missing requirement")
+	}
+	item := reqVal.(structfields.Item)
+	if tok, ok := item.Value.(structfields.Token); !ok || string(tok) != "auth-token" {
+		t.Fatalf("unexpected requirement: %v", item.Value)
+	}
+}
+
+func TestChallengeExplicitRequirementsPseudonym(t *testing.T) {
+	opts := ChallengeOptions{
+		Requirements: []headers.Requirement{
+			headers.PseudonymReq{},
+		},
+	}
+	cr := NewChallenge(opts, nil, nil, false).Build()
+
+	if _, ok := cr.Headers["AAuth-Requirement"]; ok {
+		t.Error("AAuth-Requirement header should be absent for pseudonym-only requirement")
+	}
+	vals := cr.Headers["Accept-Signature"]
+	if len(vals) == 0 {
+		t.Fatal("expected Accept-Signature header")
+	}
+	as, err := headers.ParseAcceptSignature(vals[0])
+	if err != nil {
+		t.Fatalf("parse Accept-Signature: %v", err)
+	}
+	if len(as.KeyTypes) == 0 || as.KeyTypes[0] != "jkt" {
+		t.Errorf("expected sigkey=jkt, got %v", as.KeyTypes)
+	}
+}
+
+func TestChallengeExplicitRequirementsIdentity(t *testing.T) {
+	opts := ChallengeOptions{
+		Requirements: []headers.Requirement{
+			headers.IdentityReq{},
+		},
+	}
+	cr := NewChallenge(opts, nil, nil, false).Build()
+
+	vals := cr.Headers["Accept-Signature"]
+	if len(vals) == 0 {
+		t.Fatal("expected Accept-Signature header")
+	}
+	as, err := headers.ParseAcceptSignature(vals[0])
+	if err != nil {
+		t.Fatalf("parse Accept-Signature: %v", err)
+	}
+	if len(as.KeyTypes) == 0 || as.KeyTypes[0] != "uri" {
+		t.Errorf("expected sigkey=uri, got %v", as.KeyTypes)
+	}
+}
+
+func TestChallengeExplicitRequirementsInteraction(t *testing.T) {
+	opts := ChallengeOptions{
+		Requirements: []headers.Requirement{
+			headers.InteractionReq{URL: "https://example.com/interact", Code: "XYZW"},
+		},
+	}
+	cr := NewChallenge(opts, nil, nil, false).Build()
+
+	vals := cr.Headers["AAuth-Requirement"]
+	if len(vals) == 0 {
+		t.Fatal("expected AAuth-Requirement header")
+	}
+	reqs, err := headers.ParseAAuthRequirement(vals[0])
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	ir, ok := reqs[0].(headers.InteractionReq)
+	if !ok {
+		t.Fatalf("expected InteractionReq, got %T", reqs[0])
+	}
+	if ir.URL != "https://example.com/interact" {
+		t.Errorf("URL: got %q", ir.URL)
+	}
+	if ir.Code != "XYZW" {
+		t.Errorf("Code: got %q", ir.Code)
 	}
 }

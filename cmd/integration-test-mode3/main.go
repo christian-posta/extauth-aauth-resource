@@ -23,6 +23,7 @@ import (
 
 	pb "aauth-service/gen/proto"
 	"aauth-service/pkg/aauth"
+	"aauth-service/pkg/aauth/agent"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/httpsig/structfields"
 )
@@ -89,7 +90,8 @@ func runStubPersonServer(listenAddr, resourceJWKS string) {
 
 func (s *stubPersonServer) handleMetadata(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
-		"jwks_uri": s.baseURL + "/.well-known/jwks.json",
+		"jwks_uri":       s.baseURL + "/.well-known/jwks.json",
+		"token_endpoint": s.baseURL + "/token",
 	})
 }
 
@@ -150,15 +152,15 @@ func (s *stubPersonServer) handleMintAgent(w http.ResponseWriter, r *http.Reques
 
 func (s *stubPersonServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ResourceToken string                 `json:"resource_token"`
-		CnfJWK        map[string]interface{} `json:"cnf_jwk"`
+		ResourceToken string `json:"resource_token"`
+		Scope         string `json:"scope"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.ResourceToken == "" || len(req.CnfJWK) == 0 {
-		http.Error(w, "resource_token and cnf_jwk are required", http.StatusBadRequest)
+	if req.ResourceToken == "" {
+		http.Error(w, "resource_token is required", http.StatusBadRequest)
 		return
 	}
 
@@ -173,7 +175,12 @@ func (s *stubPersonServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thumbprint, err := jwkThumbprint(req.CnfJWK)
+	cnfJWK, err := extractCnfJWKFromSigKey(r.Header.Get("signature-key"))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("extract cnf_jwk: %s", err), http.StatusUnauthorized)
+		return
+	}
+	thumbprint, err := jwkThumbprint(cnfJWK)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -195,7 +202,7 @@ func (s *stubPersonServer) handleToken(w http.ResponseWriter, r *http.Request) {
 		"iat":   time.Now().Unix(),
 		"exp":   time.Now().Add(5 * time.Minute).Unix(),
 		"act":   map[string]interface{}{"sub": agentID},
-		"cnf":   map[string]interface{}{"jwk": req.CnfJWK},
+		"cnf":   map[string]interface{}{"jwk": cnfJWK},
 	}, s.priv)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -203,6 +210,57 @@ func (s *stubPersonServer) handleToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"access_token": token})
+}
+
+// extractCnfJWKFromSigKey parses a Signature-Key header (sig=jwt;jwt="<token>")
+// and returns the cnf.jwk claim from the embedded agent JWT.
+func extractCnfJWKFromSigKey(sigKeyVal string) (map[string]interface{}, error) {
+	if sigKeyVal == "" {
+		return nil, fmt.Errorf("signature-key header missing")
+	}
+	dict, err := structfields.ParseDictionary(sigKeyVal)
+	if err != nil {
+		return nil, fmt.Errorf("parse signature-key: %w", err)
+	}
+	item, ok := dict.Get("sig")
+	if !ok {
+		return nil, fmt.Errorf("signature-key missing sig member")
+	}
+	innerItem, ok := item.(structfields.Item)
+	if !ok {
+		return nil, fmt.Errorf("signature-key sig member malformed")
+	}
+	scheme, ok := innerItem.Value.(structfields.Token)
+	if !ok || string(scheme) != "jwt" {
+		return nil, fmt.Errorf("expected jwt scheme, got %v", innerItem.Value)
+	}
+	jwtParam, ok := innerItem.Params.Get("jwt")
+	if !ok {
+		return nil, fmt.Errorf("signature-key sig member missing jwt parameter")
+	}
+	tokenStr, ok := jwtParam.(string)
+	if !ok || tokenStr == "" {
+		return nil, fmt.Errorf("signature-key jwt parameter is not a string")
+	}
+	parts := strings.Split(tokenStr, ".")
+	if len(parts) != 3 {
+		return nil, fmt.Errorf("agent token is not a JWT")
+	}
+	payloadBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, fmt.Errorf("decode agent token payload: %w", err)
+	}
+	var claims struct {
+		Cnf map[string]interface{} `json:"cnf"`
+	}
+	if err := json.Unmarshal(payloadBytes, &claims); err != nil {
+		return nil, fmt.Errorf("decode agent token claims: %w", err)
+	}
+	jwkRaw, ok := claims.Cnf["jwk"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("agent token cnf.jwk missing or malformed")
+	}
+	return jwkRaw, nil
 }
 
 func runDriver(grpcAddr, psBase, resourceIssuer, resourceID, authority, path string) error {
@@ -241,10 +299,26 @@ func runDriver(grpcAddr, psBase, resourceIssuer, resourceID, authority, path str
 	}
 	fmt.Println("  received resource-token challenge")
 
-	accessToken, err := exchangeResourceToken(psBase, resourceToken, cnfJWK)
+	signer, err := agent.NewRequestSigner(agent.SignerOptions{
+		AgentID:   "aauth:demo-agent@agents.example.com",
+		KeyID:     "demo-agent-key",
+		Signer:    agentPriv,
+		Algorithm: "ed25519",
+		Tokens:    &agent.TokenStore{AgentToken: agentToken},
+	})
+	if err != nil {
+		return fmt.Errorf("build request signer: %w", err)
+	}
+
+	exchangeResult, err := agent.ExchangeResourceToken(context.Background(), agent.ExchangeResourceTokenOptions{
+		ResourceToken: resourceToken,
+		Signer:        signer,
+		HTTPClient:    http.DefaultClient,
+	})
 	if err != nil {
 		return fmt.Errorf("exchange resource token: %w", err)
 	}
+	accessToken := exchangeResult.AuthToken
 
 	fmt.Println("Call 2: aa-auth+jwt -> expect 200 OK")
 	resp2, err := signedCheck(client, resourceID, authority, path, accessToken, agentPriv)
@@ -346,17 +420,6 @@ func mintAgentToken(psBase, aud string, cnfJWK map[string]interface{}) (string, 
 		"cnf_jwk": cnfJWK,
 	}, &resp)
 	return resp.Token, err
-}
-
-func exchangeResourceToken(psBase, resourceToken string, cnfJWK map[string]interface{}) (string, error) {
-	var resp struct {
-		AccessToken string `json:"access_token"`
-	}
-	err := postJSON(psBase+"/token", map[string]interface{}{
-		"resource_token": resourceToken,
-		"cnf_jwk":        cnfJWK,
-	}, &resp)
-	return resp.AccessToken, err
 }
 
 func postJSON(url string, reqBody any, respBody any) error {

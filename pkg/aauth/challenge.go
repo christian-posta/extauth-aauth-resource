@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"aauth-service/pkg/aauth/headers"
 	"aauth-service/pkg/httpsig/structfields"
 )
 
@@ -131,15 +132,20 @@ func (c *Challenge) Build() ChallengeResponse {
 
 	// Use literal keys (no canonicalization) so consumers see exactly the
 	// names the AAuth spec uses on the wire.
-	resp.Headers["AAuth-Requirement"] = []string{reqHeaderStr}
 	resp.Headers["WWW-Authenticate"] = []string{"AAuth"}
 	resp.Headers["Content-Type"] = []string{"application/json"}
 
-	if sigErrHeader, ok := c.signatureErrorHeader(); ok {
-		resp.Headers["Signature-Error"] = []string{sigErrHeader}
-	}
-	if acceptSigHeader, ok := c.acceptSignatureHeader(); ok {
-		resp.Headers["Accept-Signature"] = []string{acceptSigHeader}
+	if len(c.Opts.Requirements) > 0 {
+		// Explicit requirements drive header generation.
+		c.buildRequirementHeaders(resp.Headers)
+	} else {
+		resp.Headers["AAuth-Requirement"] = []string{reqHeaderStr}
+		if sigErrHeader, ok := c.signatureErrorHeader(); ok {
+			resp.Headers["Signature-Error"] = []string{sigErrHeader}
+		}
+		if acceptSigHeader, ok := c.acceptSignatureHeader(); ok {
+			resp.Headers["Accept-Signature"] = []string{acceptSigHeader}
+		}
 	}
 
 	resp.Body = bodyBytes
@@ -290,4 +296,54 @@ func (c *Challenge) acceptSignatureHeader() (string, bool) {
 		return "", false
 	}
 	return s, true
+}
+
+// buildRequirementHeaders sets AAuth-Requirement and/or Accept-Signature response
+// headers based on the explicit c.Opts.Requirements slice.
+//
+//   - AuthTokenReq / InteractionReq / ApprovalReq / ClarificationReq / ClaimsReq
+//     → AAuth-Requirement header (RFC 8941 Dictionary)
+//   - PseudonymReq  → Accept-Signature with sigkey=jkt
+//   - IdentityReq   → Accept-Signature with sigkey=uri
+func (c *Challenge) buildRequirementHeaders(h http.Header) {
+	var aAuthReqs []headers.Requirement
+	var acceptSigAs *headers.AcceptSignature
+
+	baseComponents := []string{"@method", "@authority", "@path"}
+	for _, comp := range c.Opts.AdditionalSignatureComponents {
+		if comp != "signature-key" {
+			baseComponents = append(baseComponents, comp)
+		}
+	}
+
+	for _, req := range c.Opts.Requirements {
+		switch req.(type) {
+		case headers.PseudonymReq:
+			if acceptSigAs == nil {
+				acceptSigAs = &headers.AcceptSignature{Components: baseComponents}
+			}
+			acceptSigAs.KeyTypes = append(acceptSigAs.KeyTypes, "jkt")
+
+		case headers.IdentityReq:
+			if acceptSigAs == nil {
+				acceptSigAs = &headers.AcceptSignature{Components: baseComponents}
+			}
+			acceptSigAs.KeyTypes = append(acceptSigAs.KeyTypes, "uri")
+
+		default:
+			aAuthReqs = append(aAuthReqs, req)
+		}
+	}
+
+	if len(aAuthReqs) > 0 {
+		if s, err := headers.BuildAAuthRequirement(aAuthReqs); err == nil {
+			h["AAuth-Requirement"] = []string{s}
+		}
+	}
+
+	if acceptSigAs != nil {
+		if s, err := headers.BuildAcceptSignature(acceptSigAs); err == nil {
+			h["Accept-Signature"] = []string{s}
+		}
+	}
 }

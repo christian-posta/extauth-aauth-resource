@@ -12,14 +12,13 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/base64"
 	"flag"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
-	"time"
 
-	"aauth-service/pkg/httpsig"
-	"aauth-service/pkg/httpsig/structfields"
+	"aauth-service/pkg/aauth/agent"
 )
 
 func main() {
@@ -30,41 +29,37 @@ func main() {
 	flag.Parse()
 
 	// Generate a fresh ephemeral Ed25519 key (hwk scheme — pseudonymous).
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		panic(err)
 	}
 
-	x64 := base64.RawURLEncoding.EncodeToString(pub)
-	sigKeyVal := `sig=hwk;kty="OKP";crv="Ed25519";x="` + x64 + `"`
-
-	headers := map[string][]string{
-		"signature-key": {sigKeyVal},
-	}
-
-	params := structfields.Params{
-		{Name: "created", Value: time.Now().Unix()},
-		{Name: "alg", Value: "ed25519"},
-	}
-
-	signInput := httpsig.SignInput{
-		Method:     strings.ToUpper(*method),
-		Authority:  *authority,
-		Path:       *path,
-		Headers:    headers,
-		Label:      "sig",
-		Components: []string{"@method", "@authority", "@path", "signature-key"},
-		Params:     params,
-		PrivateKey: priv,
-		Alg:        "ed25519",
-	}
-
-	sigBytes, sigInputStr, err := httpsig.Sign(signInput)
+	signer, err := agent.NewRequestSigner(agent.SignerOptions{
+		AgentID:   "aauth:cli@local",
+		KeyID:     "sig",
+		Signer:    priv,
+		Algorithm: "ed25519",
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	sigHdr := `sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`
+	rawURL := "http://" + *authority + *path
+	req, err := http.NewRequest(strings.ToUpper(*method), rawURL, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	comps := []string{"@method", "@authority", "@path", "signature-key"}
+	if err := signer.Sign(req.Context(), req, comps); err != nil {
+		panic(err)
+	}
+
+	sigKeyVal := req.Header.Get("signature-key")
+	sigInputVal := req.Header.Get("signature-input")
+	sigVal := req.Header.Get("signature")
+
+	targetURL := &url.URL{Scheme: "http", Host: *authority, Path: *path}
 
 	bodyFlag := ""
 	if *body != "" {
@@ -72,11 +67,11 @@ func main() {
 		bodyFlag = fmt.Sprintf(" -d '%s'", escaped)
 	}
 
-	fmt.Printf("curl -si -X %s 'http://%s%s' \\\n", strings.ToUpper(*method), *authority, *path)
+	fmt.Printf("curl -si -X %s '%s' \\\n", strings.ToUpper(*method), targetURL.String())
 	fmt.Printf("  -H 'Content-Type: application/json' \\\n")
 	fmt.Printf("  -H 'signature-key: %s' \\\n", sigKeyVal)
-	fmt.Printf("  -H 'signature-input: %s' \\\n", sigInputStr)
-	fmt.Printf("  -H 'signature: %s'", sigHdr)
+	fmt.Printf("  -H 'signature-input: %s' \\\n", sigInputVal)
+	fmt.Printf("  -H 'signature: %s'", sigVal)
 	if bodyFlag != "" {
 		fmt.Printf(" \\%s\n", bodyFlag)
 	} else {

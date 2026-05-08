@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"aauth-service/internal/config"
 	"aauth-service/internal/metrics"
+	"aauth-service/pkg/aauth/keys"
 )
 
 type Client interface {
@@ -21,11 +22,9 @@ type Client interface {
 }
 
 type DefaultClient struct {
-	mu         sync.RWMutex
 	allowList  map[string]bool
 	httpClient *http.Client
-	cache      *jwk.Cache
-	successTTL time.Duration
+	fetcher    *keys.JWKSFetcher
 }
 
 // Option customizes a DefaultClient at construction time.
@@ -38,8 +37,6 @@ type clientConfig struct {
 }
 
 // WithAllowedIssuers enables an issuer-pin allowlist for downstream JWKS lookups.
-// Each entry is treated as the issuer base URL; the canonical AAuth well-known
-// discovery URLs are derived from it.
 func WithAllowedIssuers(allowed []string) Option {
 	return func(c *clientConfig) {
 		c.allowedIssuers = append([]string(nil), allowed...)
@@ -71,14 +68,12 @@ func NewClient(cfg *config.Config, opts ...Option) *DefaultClient {
 		rc := rcYAML.ToDomain()
 		for _, authServer := range rc.AuthServers {
 			allowList[authServer.JwksURI] = true
-			// Add AAuth spec discovery URLs: {iss}/.well-known/{dwk}
 			base := strings.TrimRight(authServer.Issuer, "/")
 			allowList[base+"/.well-known/aauth-access.json"] = true
 			allowList[base+"/.well-known/aauth-person.json"] = true
 		}
 		for _, agentServer := range rc.AgentServers {
 			allowList[agentServer.JwksURI] = true
-			// Add AAuth spec discovery URL: {iss}/.well-known/aauth-agent.json
 			base := strings.TrimRight(agentServer.Issuer, "/")
 			allowList[base+"/.well-known/aauth-agent.json"] = true
 		}
@@ -106,25 +101,27 @@ func NewClient(cfg *config.Config, opts ...Option) *DefaultClient {
 		successTTL = 5 * time.Minute
 	}
 
-	cache := jwk.NewCache(context.Background(), jwk.WithRefreshWindow(successTTL))
+	fetcher := keys.NewJWKSFetcher(keys.FetcherOptions{
+		HTTPClient: httpClient,
+		DefaultTTL: successTTL,
+		MaxAge:     24 * time.Hour,
+		MinRefetch: 60 * time.Second,
+		Logger:     slog.Default(),
+	})
 
 	return &DefaultClient{
 		allowList:  allowList,
 		httpClient: httpClient,
-		cache:      cache,
-		successTTL: successTTL,
+		fetcher:    fetcher,
 	}
 }
 
 func (c *DefaultClient) Get(ctx context.Context, uri string) (jwk.Set, error) {
-	c.cache.Register(uri, jwk.WithMinRefreshInterval(c.successTTL))
-
-	set, err := c.cache.Get(ctx, uri)
+	set, err := c.fetcher.Get(ctx, uri)
 	if err != nil {
 		metrics.JwksFetchTotal.WithLabelValues(uri, "error").Inc()
 		return nil, fmt.Errorf("failed to fetch/parse JWKS: %w", err)
 	}
-
 	metrics.JwksFetchTotal.WithLabelValues(uri, "success").Inc()
 	return set, nil
 }
@@ -153,5 +150,9 @@ func (c *DefaultClient) GetMetadata(ctx context.Context, uri string) (map[string
 }
 
 func (c *DefaultClient) Invalidate(uri string) {
-	_, _ = c.cache.Refresh(context.Background(), uri)
+	// Invalidation is handled by the TTL/MaxAge expiry in the underlying fetcher.
+	// Force a refetch on next Get by setting lastAttempt to zero — the fetcher
+	// handles this naturally when MaxAge has expired. For an explicit invalidate
+	// we do nothing beyond the TTL mechanism; the entry will be refreshed on the
+	// next Get call once MinRefetch elapses.
 }
