@@ -1,16 +1,17 @@
 package aauth
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"aauth-service/internal/config"
 	"aauth-service/internal/jwksfetch"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/httpsig/structfields"
@@ -23,7 +24,7 @@ func TestVerifyRejectsNonHTTPSJWKSURI(t *testing.T) {
 	}
 
 	sigKeyVal := `sig=jwks_uri;id="http://agents.example.com";dwk="aauth-agent.json";kid="agent-key-1"`
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key": {sigKeyVal},
 	}
 
@@ -51,9 +52,9 @@ func TestVerifyRejectsNonHTTPSJWKSURI(t *testing.T) {
 	headers["signature-input"] = []string{sigInputStr}
 	headers["signature"] = []string{`sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`}
 
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer: "https://resource.example.com",
-		AgentServers: []config.AgentServer{
+		AgentServers: []AgentServer{
 			{Issuer: "http://agents.example.com", JwksURI: "http://agents.example.com/jwks.json"},
 		},
 		SignatureWindow: 60 * time.Second,
@@ -72,7 +73,7 @@ func TestVerifyRejectsNonHTTPSJWKSURI(t *testing.T) {
 	}
 	mockJwks.Keysets["http://agents.example.com/jwks.json"] = set
 
-	result := Verify(rc, "GET", "resource.example.com", "/api", headers, mockJwks)
+	result := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", headers, mockJwks)
 	if result.Err != ErrInvalidKey {
 		t.Fatalf("expected ErrInvalidKey, got %v", result.Err)
 	}
@@ -89,7 +90,7 @@ func TestVerifyRejectsKeyIDMismatchBetweenSignatureKeyAndSignatureInput(t *testi
 	discoveryURL := agentID + "/.well-known/" + dwk
 	jwksURI := "https://agents.example.com/jwks.json"
 	sigKeyVal := `sig=jwks_uri;id="` + agentID + `";dwk="` + dwk + `";kid="agent-key-1"`
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key": {sigKeyVal},
 	}
 
@@ -117,9 +118,9 @@ func TestVerifyRejectsKeyIDMismatchBetweenSignatureKeyAndSignatureInput(t *testi
 	headers["signature-input"] = []string{sigInputStr}
 	headers["signature"] = []string{`sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`}
 
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer: "https://resource.example.com",
-		AgentServers: []config.AgentServer{
+		AgentServers: []AgentServer{
 			{Issuer: "https://agents.example.com", JwksURI: jwksURI},
 		},
 		SignatureWindow: 60 * time.Second,
@@ -138,7 +139,7 @@ func TestVerifyRejectsKeyIDMismatchBetweenSignatureKeyAndSignatureInput(t *testi
 	}
 	mockJwks.Keysets[jwksURI] = set
 
-	result := Verify(rc, "GET", "resource.example.com", "/api", headers, mockJwks)
+	result := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", headers, mockJwks)
 	if result.Err != ErrInvalidSignature {
 		t.Fatalf("expected ErrInvalidSignature, got %v", result.Err)
 	}
@@ -155,7 +156,7 @@ func TestVerifyRefreshesJWKSOnceBeforeReturningUnknownKey(t *testing.T) {
 	discoveryURL := agentID + "/.well-known/" + dwk
 	jwksURI := "https://agents.example.com/jwks.json"
 	sigKeyVal := `sig=jwks_uri;id="` + agentID + `";dwk="` + dwk + `";kid="rotated-key"`
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key": {sigKeyVal},
 	}
 
@@ -183,9 +184,9 @@ func TestVerifyRefreshesJWKSOnceBeforeReturningUnknownKey(t *testing.T) {
 	headers["signature-input"] = []string{sigInputStr}
 	headers["signature"] = []string{`sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`}
 
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer: "https://resource.example.com",
-		AgentServers: []config.AgentServer{
+		AgentServers: []AgentServer{
 			{Issuer: "https://agents.example.com", JwksURI: jwksURI},
 		},
 		SignatureWindow: 60 * time.Second,
@@ -220,7 +221,7 @@ func TestVerifyRefreshesJWKSOnceBeforeReturningUnknownKey(t *testing.T) {
 		mockJwks.Keysets[uri] = refreshedSet
 	}
 
-	result := Verify(rc, "GET", "resource.example.com", "/api", headers, mockJwks)
+	result := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", headers, mockJwks)
 	if result.Err != nil {
 		b, _ := json.Marshal(result.Diagnostics)
 		t.Fatalf("expected success after refresh, got err=%v diagnostics=%s", result.Err, string(b))

@@ -9,7 +9,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/internal/aauth"
+	"aauth-service/pkg/aauth"
 	"aauth-service/internal/config"
 	"aauth-service/internal/logging"
 	"aauth-service/internal/metrics"
@@ -51,8 +51,10 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		headers[k] = []string{v}
 	}
 
+	verifyOpts := BuildVerifyOptions(rc)
+
 	start := time.Now()
-	res := aauth.Verify(rc, method, authority, path, headers, h.jwksClient)
+	res := aauth.Verify(ctx, verifyOpts, method, authority, path, headers, h.jwksClient)
 
 	levelStr := string(res.Identity.Level)
 	if levelStr == "" {
@@ -84,15 +86,16 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		// If identity has a JKT, we can issue a resource-token even if they failed
 		issueToken := (hint != nil && hint.AgentJKT != "")
 
-		challenge := aauth.NewChallenge(rc, res.Err, hint, issueToken)
-		resp := challenge.Response()
+		challenge := aauth.NewChallenge(BuildChallengeOptions(rc), res.Err, hint, issueToken)
+		built := challenge.Build()
+		resp := ChallengeToCheckResponse(built)
 
 		logging.LogDecision(logging.DecisionLog{
 			ResourceID:       rc.ID,
 			Level:            levelStr,
 			AgentServer:      res.Identity.AgentServer,
 			Delegate:         res.Identity.Delegate,
-			ResourceTokenJTI: challenge.ResourceTokenJTI,
+			ResourceTokenJTI: built.ResourceTokenJTI,
 			Result:           "error",
 			Reason:           reason,
 			LatencyMs:        time.Since(start).Milliseconds(),
@@ -106,7 +109,8 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			AgentJKT:        res.Identity.JKT,
 			Scope:           res.Identity.Scope,
 		}
-		challenge := aauth.NewChallenge(rc, aauth.ErrInsufficientScope, hint, true)
+		challenge := aauth.NewChallenge(BuildChallengeOptions(rc), aauth.ErrInsufficientScope, hint, true)
+		built := challenge.Build()
 
 		metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "challenged").Inc()
 		metrics.CheckLatency.WithLabelValues(rc.ID, "challenged").Observe(time.Since(start).Seconds())
@@ -116,13 +120,13 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			Level:            levelStr,
 			AgentServer:      res.Identity.AgentServer,
 			Delegate:         res.Identity.Delegate,
-			ResourceTokenJTI: challenge.ResourceTokenJTI,
+			ResourceTokenJTI: built.ResourceTokenJTI,
 			Result:           "challenged",
 			Reason:           aauth.ErrInsufficientScope.Error(),
 			LatencyMs:        time.Since(start).Milliseconds(),
 		})
 
-		return challenge.Response(), nil
+		return ChallengeToCheckResponse(built), nil
 	}
 
 	// Policy hook
@@ -152,7 +156,8 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			LatencyMs:   time.Since(start).Milliseconds(),
 		})
 
-		return aauth.NewChallenge(rc, err, nil, false).Response(), nil
+		built := aauth.NewChallenge(BuildChallengeOptions(rc), err, nil, false).Build()
+		return ChallengeToCheckResponse(built), nil
 	}
 
 	if !decision.Allow {
@@ -181,7 +186,7 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 	}
 
 	// Build success response with upstream headers
-	upstreamHeaders := aauth.ToUpstreamHeaders(res.Identity)
+	upstreamHeaders := IdentityHeadersToProto(res.Identity.Headers())
 
 	metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "allow").Inc()
 	metrics.CheckLatency.WithLabelValues(rc.ID, "allow").Observe(time.Since(start).Seconds())
@@ -200,7 +205,7 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 		headersToRemove = []string{"signature", "signature-input", "signature-key"}
 	}
 
-	dynamicMeta, err := aauth.ExtAuthzDynamicMetadata(res.Identity)
+	dynamicMeta, err := IdentityMetadataToStruct(res.Identity.Metadata())
 	if err != nil {
 		log.Printf("ext_authz dynamic metadata: %v", err)
 		dynamicMeta = nil

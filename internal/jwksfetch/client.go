@@ -28,7 +28,44 @@ type DefaultClient struct {
 	successTTL time.Duration
 }
 
-func NewClient(cfg *config.Config) *DefaultClient {
+// Option customizes a DefaultClient at construction time.
+type Option func(*clientConfig)
+
+type clientConfig struct {
+	allowedIssuers []string
+	httpClient     *http.Client
+	cacheTTL       time.Duration
+}
+
+// WithAllowedIssuers enables an issuer-pin allowlist for downstream JWKS lookups.
+// Each entry is treated as the issuer base URL; the canonical AAuth well-known
+// discovery URLs are derived from it.
+func WithAllowedIssuers(allowed []string) Option {
+	return func(c *clientConfig) {
+		c.allowedIssuers = append([]string(nil), allowed...)
+	}
+}
+
+// WithHTTPClient overrides the underlying HTTP client used for metadata fetches.
+func WithHTTPClient(httpClient *http.Client) Option {
+	return func(c *clientConfig) {
+		c.httpClient = httpClient
+	}
+}
+
+// WithCacheTTL overrides the JWKS refresh window used by the underlying cache.
+func WithCacheTTL(d time.Duration) Option {
+	return func(c *clientConfig) {
+		c.cacheTTL = d
+	}
+}
+
+func NewClient(cfg *config.Config, opts ...Option) *DefaultClient {
+	cc := &clientConfig{}
+	for _, opt := range opts {
+		opt(cc)
+	}
+
 	allowList := make(map[string]bool)
 	for _, rcYAML := range cfg.Resources {
 		rc := rcYAML.ToDomain()
@@ -47,11 +84,24 @@ func NewClient(cfg *config.Config) *DefaultClient {
 		}
 	}
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+	for _, iss := range cc.allowedIssuers {
+		base := strings.TrimRight(iss, "/")
+		allowList[base+"/.well-known/aauth-agent.json"] = true
+		allowList[base+"/.well-known/aauth-access.json"] = true
+		allowList[base+"/.well-known/aauth-person.json"] = true
 	}
 
-	successTTL := cfg.JwksCache.SuccessTTL
+	httpClient := cc.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{
+			Timeout: 5 * time.Second,
+		}
+	}
+
+	successTTL := cc.cacheTTL
+	if successTTL == 0 {
+		successTTL = cfg.JwksCache.SuccessTTL
+	}
 	if successTTL == 0 {
 		successTTL = 5 * time.Minute
 	}

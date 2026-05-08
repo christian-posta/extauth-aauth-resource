@@ -1,10 +1,6 @@
 package aauth
 
-import (
-	pb "aauth-service/gen/proto"
-	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
-)
+import "net/http"
 
 type Level string
 
@@ -29,15 +25,14 @@ type Identity struct {
 	JKT    string
 }
 
-func ToUpstreamHeaders(id Identity) []*pb.HeaderValueOption {
-	var headers []*pb.HeaderValueOption
-
+// Headers returns the x-aauth-* upstream headers describing this identity.
+// Empty fields are omitted. Keys are kept lower-case (no canonicalization)
+// so callers can forward them verbatim without surprises.
+func (id Identity) Headers() http.Header {
+	headers := http.Header{}
 	add := func(k, v string) {
 		if v != "" {
-			headers = append(headers, &pb.HeaderValueOption{
-				Header: &pb.HeaderValue{Key: k, Value: v},
-				Append: &wrapperspb.BoolValue{Value: false},
-			})
+			headers[k] = []string{v}
 		}
 	}
 
@@ -51,12 +46,14 @@ func ToUpstreamHeaders(id Identity) []*pb.HeaderValueOption {
 	return headers
 }
 
-// ExtAuthzDynamicMetadata builds ext_authz dynamic metadata for downstream CEL.
-func ExtAuthzDynamicMetadata(id Identity) (*structpb.Struct, error) {
+// Metadata returns a plain map describing this identity for downstream policy
+// engines (e.g. Envoy ext_authz dynamic metadata, CEL). Returns nil when there
+// is no identity to describe.
+func (id Identity) Metadata() map[string]any {
 	if id.Level == "" {
-		return nil, nil
+		return nil
 	}
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"level": string(id.Level),
 	}
 	if id.Scheme != "" {
@@ -75,7 +72,6 @@ func ExtAuthzDynamicMetadata(id Identity) (*structpb.Struct, error) {
 		fields["jkt"] = id.JKT
 	}
 	if id.Level == LevelAuthorized && id.AgentServer != "" {
-		// Preserve the original aa-auth+jwt metadata contract.
 		fields["agent"] = id.AgentServer
 	}
 	if id.Level == LevelIdentified && id.AgentServer != "" {
@@ -88,13 +84,13 @@ func ExtAuthzDynamicMetadata(id Identity) (*structpb.Struct, error) {
 		fields["txn"] = id.Txn
 	}
 	if id.ActSub != "" {
-		fields["act"] = map[string]interface{}{"sub": id.ActSub}
+		fields["act"] = map[string]any{"sub": id.ActSub}
 	}
 	if id.Delegate != "" {
 		fields["sub"] = id.Delegate
 	}
 	if len(fields) == 0 {
-		return nil, nil
+		return nil
 	}
-	return structpb.NewStruct(fields)
+	return fields
 }

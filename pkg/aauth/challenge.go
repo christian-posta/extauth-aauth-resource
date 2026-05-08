@@ -2,14 +2,11 @@ package aauth
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
-	"google.golang.org/protobuf/types/known/wrapperspb"
-
-	pb "aauth-service/gen/proto"
-	"aauth-service/internal/config"
 	"aauth-service/pkg/httpsig/structfields"
 )
 
@@ -26,24 +23,38 @@ type AgentHint struct {
 	Scope string
 }
 
+// ChallengeResponse is the transport-agnostic outcome of building a 401 challenge.
+type ChallengeResponse struct {
+	Status           int
+	Headers          http.Header
+	Body             []byte
+	ResourceTokenJTI string
+}
+
 type Challenge struct {
-	Resource           *config.ResourceConfig
+	Opts               ChallengeOptions
 	Err                error
 	AgentHint          *AgentHint
 	IssueResourceToken bool
-	ResourceTokenJTI   string
 }
 
-func NewChallenge(rc *config.ResourceConfig, err error, hint *AgentHint, issueToken bool) *Challenge {
+func NewChallenge(opts ChallengeOptions, err error, hint *AgentHint, issueToken bool) *Challenge {
 	return &Challenge{
-		Resource:           rc,
+		Opts:               opts,
 		Err:                err,
 		AgentHint:          hint,
 		IssueResourceToken: issueToken,
 	}
 }
 
-func (c *Challenge) Response() *pb.CheckResponse {
+func (c *Challenge) logger() *slog.Logger {
+	if c.Opts.Logger != nil {
+		return c.Opts.Logger
+	}
+	return slog.Default()
+}
+
+func (c *Challenge) Build() ChallengeResponse {
 	// Determine error code for the JSON body.
 	errCode := "invalid_request"
 	if c.Err != nil {
@@ -59,16 +70,21 @@ func (c *Challenge) Response() *pb.CheckResponse {
 		{Name: "requirement", Value: structfields.Item{Value: structfields.Token("auth-token")}},
 	}
 
+	resp := ChallengeResponse{
+		Status:  http.StatusUnauthorized,
+		Headers: http.Header{},
+	}
+
 	// resource-token is REQUIRED when we have agent identity (two-step flow: first
 	// unsigned request cannot include it since there is no JKT yet; signed retries can).
 	if c.IssueResourceToken && c.AgentHint != nil && c.AgentHint.AgentJKT != "" {
-		scope := strings.Join(c.Resource.DefaultResourceTokenScopes, " ")
+		scope := strings.Join(c.Opts.DefaultResourceTokenScopes, " ")
 		if scope == "" {
 			scope = c.AgentHint.Scope
 		}
 
 		claims := ResourceTokenClaims{
-			Iss:      c.Resource.Issuer,
+			Iss:      c.Opts.Issuer,
 			Agent:    c.AgentHint.AgentIdentifier,
 			AgentJKT: c.AgentHint.AgentJKT,
 			Exp:      time.Now().Add(5 * time.Minute).Unix(),
@@ -77,19 +93,28 @@ func (c *Challenge) Response() *pb.CheckResponse {
 		if scope != "" {
 			claims.Scope = scope
 		}
-		claims.Aud = ResolveResourceTokenAud(c.Resource)
+		claims.Aud = c.Opts.AAud
 
-		if len(c.Resource.PrivateKey) == 0 || c.Resource.SigningKey.Kid == "" {
-			log.Printf("resource-token requested but signing key is unavailable for resource=%s", c.Resource.ID)
+		if c.Opts.SigningKey == nil || c.Opts.SigningKeyKid == "" {
+			c.logger().Warn("resource-token requested but signing key is unavailable",
+				slog.String("resource", c.Opts.ResourceID))
 		} else {
-			token, err := MintResourceToken(c.Resource, claims, c.Resource.PrivateKey)
+			mintOpts := MintResourceTokenOptions{
+				Issuer:        c.Opts.Issuer,
+				Aud:           claims.Aud,
+				SigningKeyKid: c.Opts.SigningKeyKid,
+				SigningKey:    c.Opts.SigningKey,
+			}
+			token, err := MintResourceToken(mintOpts, claims)
 			if err != nil {
-				log.Printf("failed to mint resource token for resource=%s: %v", c.Resource.ID, err)
+				c.logger().Error("failed to mint resource token",
+					slog.String("resource", c.Opts.ResourceID),
+					slog.Any("error", err))
 			} else {
 				_, parsedClaims, parseErr := parseJWTUnverified(token)
 				if parseErr == nil {
 					if jti, ok := parsedClaims["jti"].(string); ok {
-						c.ResourceTokenJTI = jti
+						resp.ResourceTokenJTI = jti
 					}
 				}
 				// resource-token must be a String (quoted) in the SF dictionary — JWTs contain
@@ -104,44 +129,21 @@ func (c *Challenge) Response() *pb.CheckResponse {
 
 	reqHeaderStr, _ := structfields.SerializeDictionary(reqDict)
 
-	headers := []*pb.HeaderValueOption{
-		{
-			Header: &pb.HeaderValue{Key: "AAuth-Requirement", Value: reqHeaderStr},
-			Append: &wrapperspb.BoolValue{Value: false},
-		},
-		{
-			Header: &pb.HeaderValue{Key: "WWW-Authenticate", Value: "AAuth"},
-			Append: &wrapperspb.BoolValue{Value: false},
-		},
-		{
-			Header: &pb.HeaderValue{Key: "Content-Type", Value: "application/json"},
-			Append: &wrapperspb.BoolValue{Value: false},
-		},
-	}
+	// Use literal keys (no canonicalization) so consumers see exactly the
+	// names the AAuth spec uses on the wire.
+	resp.Headers["AAuth-Requirement"] = []string{reqHeaderStr}
+	resp.Headers["WWW-Authenticate"] = []string{"AAuth"}
+	resp.Headers["Content-Type"] = []string{"application/json"}
 
 	if sigErrHeader, ok := c.signatureErrorHeader(); ok {
-		headers = append(headers, &pb.HeaderValueOption{
-			Header: &pb.HeaderValue{Key: "Signature-Error", Value: sigErrHeader},
-			Append: &wrapperspb.BoolValue{Value: false},
-		})
+		resp.Headers["Signature-Error"] = []string{sigErrHeader}
 	}
 	if acceptSigHeader, ok := c.acceptSignatureHeader(); ok {
-		headers = append(headers, &pb.HeaderValueOption{
-			Header: &pb.HeaderValue{Key: "Accept-Signature", Value: acceptSigHeader},
-			Append: &wrapperspb.BoolValue{Value: false},
-		})
+		resp.Headers["Accept-Signature"] = []string{acceptSigHeader}
 	}
 
-	return &pb.CheckResponse{
-		Status: &pb.Status{Code: 16}, // UNAUTHENTICATED
-		HttpResponse: &pb.CheckResponse_DeniedResponse{
-			DeniedResponse: &pb.DeniedHttpResponse{
-				Status:  &pb.HttpStatus{Code: pb.StatusCode_Unauthorized},
-				Headers: headers,
-				Body:    string(bodyBytes),
-			},
-		},
-	}
+	resp.Body = bodyBytes
+	return resp
 }
 
 func (c *Challenge) signatureErrorHeader() (string, bool) {
@@ -164,7 +166,7 @@ func (c *Challenge) signatureErrorHeader() (string, bool) {
 			{Value: "@path"},
 			{Value: "signature-key"},
 		}
-		for _, comp := range c.Resource.AdditionalSignatureComponents {
+		for _, comp := range c.Opts.AdditionalSignatureComponents {
 			items = append(items, structfields.Item{Value: comp})
 		}
 		dict = append(dict,
@@ -249,14 +251,14 @@ func (c *Challenge) acceptSignatureHeader() (string, bool) {
 		{Value: "@authority"},
 		{Value: "@path"},
 	}
-	for _, comp := range c.Resource.AdditionalSignatureComponents {
+	for _, comp := range c.Opts.AdditionalSignatureComponents {
 		if comp != "signature-key" {
 			baseItems = append(baseItems, structfields.Item{Value: comp})
 		}
 	}
 
 	dict := structfields.Dictionary{}
-	if c.Resource.AllowPseudonymous {
+	if c.Opts.AllowPseudonymous {
 		dict = append(dict, structfields.DictMember{
 			Name: "sig1",
 			Value: structfields.InnerList{
@@ -267,7 +269,7 @@ func (c *Challenge) acceptSignatureHeader() (string, bool) {
 			},
 		})
 	}
-	if len(c.Resource.AgentServers) > 0 || len(c.Resource.AuthServers) > 0 {
+	if c.Opts.AgentServersConfigured || c.Opts.AuthServersConfigured {
 		dict = append(dict, structfields.DictMember{
 			Name: "sig2",
 			Value: structfields.InnerList{

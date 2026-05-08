@@ -22,7 +22,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/internal/aauth"
+	"aauth-service/pkg/aauth"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/httpsig/structfields"
 )

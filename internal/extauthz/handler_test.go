@@ -9,7 +9,7 @@ import (
 	"time"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/internal/aauth"
+	"aauth-service/pkg/aauth"
 	"aauth-service/internal/config"
 	"aauth-service/internal/extauthz"
 	"aauth-service/pkg/httpsig"

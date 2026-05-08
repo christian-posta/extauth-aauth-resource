@@ -8,15 +8,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"aauth-service/internal/config"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/sigkey"
 )
+
+// JWKSFetcher abstracts the metadata + JWKS retrieval the protocol library needs.
+// Service code provides an implementation; tests can use a mock.
+type JWKSFetcher interface {
+	Get(ctx context.Context, uri string) (jwk.Set, error)
+	GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error)
+	Invalidate(uri string)
+}
 
 // aauthJWKSErr carries a diagnostic stage for AAuth well-known -> jwks_uri -> JWKS loading.
 type aauthJWKSErr struct {
@@ -29,8 +37,8 @@ func (e *aauthJWKSErr) Error() string { return e.Detail }
 // loadAAuthJWKSSet fetches the issuer's well-known metadata, reads jwks_uri, optionally
 // checks it against a configured pin, then loads the JWK set. Per SPEC.md §4 (metadata)
 // and §12.10, tokens are verified with keys from jwks_uri in that metadata.
-func loadAAuthJWKSSet(jwksClient jwksFetcher, stagePrefix, discoveryURL, pinJwksURI string) (jwk.Set, string, error) {
-	metadata, err := jwksClient.GetMetadata(context.Background(), discoveryURL)
+func loadAAuthJWKSSet(ctx context.Context, jwksClient JWKSFetcher, stagePrefix, discoveryURL, pinJwksURI string) (jwk.Set, string, error) {
+	metadata, err := jwksClient.GetMetadata(ctx, discoveryURL)
 	if err != nil {
 		return nil, "", &aauthJWKSErr{Stage: stagePrefix + ".metadata.fetch", Detail: err.Error()}
 	}
@@ -44,17 +52,11 @@ func loadAAuthJWKSSet(jwksClient jwksFetcher, stagePrefix, discoveryURL, pinJwks
 			Detail: fmt.Sprintf("discovered jwks_uri %q does not match configured jwks_uri %q", jwksURI, pinJwksURI),
 		}
 	}
-	set, err := jwksClient.Get(context.Background(), jwksURI)
+	set, err := jwksClient.Get(ctx, jwksURI)
 	if err != nil {
 		return nil, jwksURI, &aauthJWKSErr{Stage: stagePrefix + ".jwks.fetch", Detail: err.Error()}
 	}
 	return set, jwksURI, nil
-}
-
-type jwksFetcher interface {
-	Get(ctx context.Context, uri string) (jwk.Set, error)
-	GetMetadata(ctx context.Context, uri string) (map[string]interface{}, error)
-	Invalidate(uri string)
 }
 
 type VerifyResult struct {
@@ -81,7 +83,7 @@ func fail(identity Identity, scheme, stage, detail string, err error) VerifyResu
 	}
 }
 
-func Verify(rc *config.ResourceConfig, method, authority, path string, headers map[string][]string, jwksClient jwksFetcher) VerifyResult {
+func Verify(ctx context.Context, opts VerifyOptions, method, authority, path string, headers http.Header, jwksClient JWKSFetcher) VerifyResult {
 	// 1. Extract raw signature headers.
 	if len(headers["signature"]) == 0 || len(headers["signature-input"]) == 0 || len(headers["signature-key"]) == 0 {
 		return fail(Identity{}, "", "headers", "missing one or more of signature, signature-input, signature-key", ErrMissingSignature)
@@ -101,8 +103,8 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		KeyID:  parsedKey.KeyID,
 	}
 
-	if len(rc.AllowedSignatureKeySchemes) > 0 {
-		if !stringInSlice(scheme, rc.AllowedSignatureKeySchemes) {
+	if len(opts.AllowedSignatureKeySchemes) > 0 {
+		if !stringInSlice(scheme, opts.AllowedSignatureKeySchemes) {
 			return fail(identity, scheme, "config.signature_key_scheme", "signature-key scheme not allowed for this resource", ErrDisallowedSignatureKeyScheme)
 		}
 	}
@@ -134,7 +136,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		}
 		identity.JKT = jkt
 
-		if !rc.AllowPseudonymous {
+		if !opts.AllowPseudonymous {
 			// Level too low — return identity so a bound resource-token can be minted.
 			identity.Level = LevelPseudonymous
 			return fail(identity, scheme, "policy.pseudonymous", "pseudonymous identities are disabled for this resource", ErrInsufficientScope)
@@ -152,16 +154,16 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		}
 
 		// Verify the discovery ID belongs to a known agent server (if configured).
-		var agentServer config.AgentServer
+		var agentServer AgentServer
 		var matched bool
-		for _, as := range rc.AgentServers {
+		for _, as := range opts.AgentServers {
 			if as.Issuer == parsedKey.ID {
 				agentServer = as
 				matched = true
 				break
 			}
 		}
-		if len(rc.AgentServers) > 0 && !matched {
+		if len(opts.AgentServers) > 0 && !matched {
 			return fail(identity, scheme, "signature-key.jwks_uri.allowlist", "id is not a configured agent server issuer", ErrInvalidKey)
 		}
 		if matched && !isAllowedDiscoveryID(agentServer.Issuer) {
@@ -169,7 +171,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		}
 
 		discoveryURL := strings.TrimRight(parsedKey.ID, "/") + "/.well-known/" + parsedKey.DWK
-		metadata, err := jwksClient.GetMetadata(context.Background(), discoveryURL)
+		metadata, err := jwksClient.GetMetadata(ctx, discoveryURL)
 		if err != nil {
 			return fail(identity, scheme, "jwks.metadata.fetch", err.Error(), ErrInvalidKey)
 		}
@@ -186,7 +188,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			return fail(identity, scheme, "jwks.metadata.allowlist", "discovered jwks_uri does not match configured agent server jwks_uri", ErrInvalidKey)
 		}
 
-		set, err := jwksClient.Get(context.Background(), jwksURI)
+		set, err := jwksClient.Get(ctx, jwksURI)
 		if err != nil {
 			return fail(identity, scheme, "jwks.fetch", err.Error(), ErrInvalidKey)
 		}
@@ -195,7 +197,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		if !ok {
 			// Per Signature-Key §5.4.6, retry once after a JWKS refresh to handle rotation.
 			jwksClient.Invalidate(jwksURI)
-			set, err = jwksClient.Get(context.Background(), jwksURI)
+			set, err = jwksClient.Get(ctx, jwksURI)
 			if err != nil {
 				return fail(identity, scheme, "jwks.refresh", err.Error(), ErrInvalidKey)
 			}
@@ -244,22 +246,22 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			identity.KeyID = kid
 		}
 
-		if len(rc.AllowedJWTTypes) > 0 && !stringInSlice(strings.ToLower(typ), rc.AllowedJWTTypes) {
+		if len(opts.AllowedJWTTypes) > 0 && !stringInSlice(strings.ToLower(typ), opts.AllowedJWTTypes) {
 			return fail(identity, scheme, "config.jwt_typ", "jwt typ not allowed for this resource: "+typ, ErrDisallowedJWTType)
 		}
 
 		if typ == "aa-agent+jwt" {
 			// Verify the issuer is a known agent server (if configured).
-			var agentServer config.AgentServer
+			var agentServer AgentServer
 			var matchedAS bool
-			for _, as := range rc.AgentServers {
+			for _, as := range opts.AgentServers {
 				if as.Issuer == iss {
 					agentServer = as
 					matchedAS = true
 					break
 				}
 			}
-			if len(rc.AgentServers) > 0 && !matchedAS {
+			if len(opts.AgentServers) > 0 && !matchedAS {
 				return fail(identity, scheme, "jwt.agent.issuer", "issuer is not a configured agent server: "+iss, ErrInvalidJWT)
 			}
 			if !isAllowedDiscoveryID(iss) {
@@ -275,7 +277,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			if matchedAS {
 				pinJwksURI = agentServer.JwksURI
 			}
-			set, _, err := loadAAuthJWKSSet(jwksClient, "jwt.agent", discoveryURL, pinJwksURI)
+			set, _, err := loadAAuthJWKSSet(ctx, jwksClient, "jwt.agent", discoveryURL, pinJwksURI)
 			if err != nil {
 				var aje *aauthJWKSErr
 				if errors.As(err, &aje) {
@@ -287,8 +289,8 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			// Align with jwt.agent.issuer: iss is already vetted for discovery; do not
 			// re-require https in Parse when http for localhost/127.0.0.1/::1/*.localhost.
 			// allow_insecure_jwt_issuer relaxes the claim for other optional deployment modes.
-			issOKInJWT := isAllowedDiscoveryID(iss) || rc.AllowInsecureJWTIssuer
-			agentClaims, err := ParseAndVerifyAgentToken(parsedKey.JWT, set, rc.Issuer, issOKInJWT)
+			issOKInJWT := isAllowedDiscoveryID(iss) || opts.AllowInsecureJWTIssuer
+			agentClaims, err := ParseAndVerifyAgentToken(parsedKey.JWT, set, opts.Issuer, issOKInJWT)
 			if err != nil {
 				return fail(identity, scheme, "jwt.agent.verify", err.Error(), err)
 			}
@@ -306,16 +308,16 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 
 		} else if typ == "aa-auth+jwt" {
 			// Verify the issuer is a known auth server (if configured).
-			var authServer config.AuthServer
+			var authServer AuthServer
 			var matchedAuth bool
-			for _, as := range rc.AuthServers {
+			for _, as := range opts.AuthServers {
 				if as.Issuer == iss {
 					authServer = as
 					matchedAuth = true
 					break
 				}
 			}
-			if len(rc.AuthServers) > 0 && !matchedAuth {
+			if len(opts.AuthServers) > 0 && !matchedAuth {
 				return fail(identity, scheme, "jwt.auth.issuer", "issuer is not a configured auth server: "+iss, ErrInvalidJWT)
 			}
 			if !isAllowedDiscoveryID(iss) {
@@ -331,7 +333,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 			if matchedAuth {
 				pinAuthJwks = authServer.JwksURI
 			}
-			set, _, err := loadAAuthJWKSSet(jwksClient, "jwt.auth", discoveryURL, pinAuthJwks)
+			set, _, err := loadAAuthJWKSSet(ctx, jwksClient, "jwt.auth", discoveryURL, pinAuthJwks)
 			if err != nil {
 				var aje *aauthJWKSErr
 				if errors.As(err, &aje) {
@@ -340,8 +342,8 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 				return fail(identity, scheme, "jwt.auth.jwks.fetch", err.Error(), ErrInvalidKey)
 			}
 
-			issOKInJWT := isAllowedDiscoveryID(iss) || rc.AllowInsecureJWTIssuer
-			authClaims, err := ParseAndVerifyAuthToken(parsedKey.JWT, set, rc.Issuer, issOKInJWT)
+			issOKInJWT := isAllowedDiscoveryID(iss) || opts.AllowInsecureJWTIssuer
+			authClaims, err := ParseAndVerifyAuthToken(parsedKey.JWT, set, opts.Issuer, issOKInJWT)
 			if err != nil {
 				return fail(identity, scheme, "jwt.auth.verify", err.Error(), err)
 			}
@@ -383,7 +385,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 
 	// 4. HTTPSig verify.
 	reqComps := []string{"@method", "@authority", "@path", "signature-key"}
-	reqComps = append(reqComps, rc.AdditionalSignatureComponents...)
+	reqComps = append(reqComps, opts.AdditionalSignatureComponents...)
 
 	vIn := httpsig.VerifyInput{
 		Method:             method,
@@ -392,7 +394,7 @@ func Verify(rc *config.ResourceConfig, method, authority, path string, headers m
 		Headers:            headers,
 		RequiredComponents: reqComps,
 		AllowedAlgs:        []string{"ed25519"},
-		MaxClockSkew:       rc.SignatureWindow,
+		MaxClockSkew:       opts.SignatureWindow,
 		PublicKey:          pubKey,
 		Alg:                "ed25519",
 	}

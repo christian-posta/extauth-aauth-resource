@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	pb "aauth-service/gen/proto"
-	"aauth-service/internal/config"
 	"aauth-service/pkg/httpsig/structfields"
 )
 
@@ -17,41 +15,28 @@ func TestChallengeResponseAuthTokenRequirement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rc := &config.ResourceConfig{
-		Issuer: "https://resource.example.com",
-		SigningKey: config.SigningKey{
-			Kid: "resource-kid",
-		},
-		PrivateKey:                 priv,
+	opts := ChallengeOptions{
+		Issuer:                     "https://resource.example.com",
+		ResourceID:                 "res-1",
+		AAud:                       "https://ps.example.com",
+		SigningKeyKid:              "resource-kid",
+		SigningKey:                 priv,
 		DefaultResourceTokenScopes: []string{"data.read", "profile"},
-		PersonServer: config.PersonServer{
-			Issuer: "https://ps.example.com",
-		},
 	}
 
-	challenge := NewChallenge(rc, ErrInsufficientScope, &AgentHint{
+	challenge := NewChallenge(opts, ErrInsufficientScope, &AgentHint{
 		AgentIdentifier: "aauth:alice@agents.example.com",
 		AgentJKT:        "agent-thumbprint",
 		Scope:           "data.read",
 	}, true)
 
-	resp := challenge.Response()
-	httpResp, ok := resp.HttpResponse.(*pb.CheckResponse_DeniedResponse)
-	if !ok {
-		t.Fatal("expected denied response")
-	}
-	denied := httpResp.DeniedResponse
+	cr := challenge.Build()
 
-	var headerVal string
-	for _, h := range denied.Headers {
-		if h.Header.Key == "AAuth-Requirement" {
-			headerVal = h.Header.Value
-			break
-		}
-	}
-	if headerVal == "" {
+	headerVals := cr.Headers["AAuth-Requirement"]
+	if len(headerVals) == 0 {
 		t.Fatal("missing AAuth-Requirement header")
 	}
+	headerVal := headerVals[0]
 
 	dict, err := structfields.ParseDictionary(headerVal)
 	if err != nil {

@@ -1,16 +1,16 @@
 package aauth
 
 import (
+	"context"
+	"net/http"
 	"testing"
 	"time"
-
-	"aauth-service/internal/config"
 )
 
 func TestVerifyReturnsDiagnosticsForMissingHeaders(t *testing.T) {
-	rc := testResourceConfig()
+	opts := testVerifyOptions()
 
-	res := Verify(rc, "GET", "resource.example.com", "/api", map[string][]string{}, nil)
+	res := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", http.Header{}, nil)
 	if res.Err != ErrMissingSignature {
 		t.Fatalf("expected ErrMissingSignature, got %v", res.Err)
 	}
@@ -25,8 +25,8 @@ func TestVerifyReturnsDiagnosticsForMissingHeaders(t *testing.T) {
 	}
 }
 
-func testResourceConfig() *config.ResourceConfig {
-	return &config.ResourceConfig{
+func testVerifyOptions() VerifyOptions {
+	return VerifyOptions{
 		Issuer:          "https://resource.example.com",
 		SignatureWindow: 60 * time.Second,
 	}

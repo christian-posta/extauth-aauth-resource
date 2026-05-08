@@ -1,16 +1,17 @@
 package aauth
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"aauth-service/internal/config"
 	"aauth-service/internal/jwksfetch"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/httpsig/structfields"
@@ -18,18 +19,18 @@ import (
 
 func TestVerifyDisallowedSignatureKeySchemeHWK(t *testing.T) {
 	x64 := base64.RawURLEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize))
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key":   {`sig=hwk;kty="OKP";crv="Ed25519";x="` + x64 + `"`},
 		"signature-input": {`sig=("@method" "@authority" "@path" "signature-key");created=1;alg="ed25519"`},
 		"signature":       {`sig=:AQID:`},
 	}
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer:                     "https://resource.example.com",
 		AllowPseudonymous:          true,
 		SignatureWindow:            60 * time.Second,
-		AllowedSignatureKeySchemes: []string{config.SchemeJWT},
+		AllowedSignatureKeySchemes: []string{"jwt"},
 	}
-	res := Verify(rc, "GET", "resource.example.com", "/api", headers, nil)
+	res := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", headers, nil)
 	if res.Err != ErrDisallowedSignatureKeyScheme {
 		t.Fatalf("expected ErrDisallowedSignatureKeyScheme, got %v", res.Err)
 	}
@@ -77,7 +78,7 @@ func TestVerifyDisallowedJWTTypWhenOnlyAuthAllowed(t *testing.T) {
 	tokenStr := unsignedToken + "." + base64.RawURLEncoding.EncodeToString(sig)
 
 	sigKeyVal := `sig=jwt;jwt="` + tokenStr + `"`
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key": {sigKeyVal},
 	}
 
@@ -103,17 +104,17 @@ func TestVerifyDisallowedJWTTypWhenOnlyAuthAllowed(t *testing.T) {
 	headers["signature-input"] = []string{sigInputStr}
 	headers["signature"] = []string{`sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`}
 
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer: "https://res.example.com",
-		AgentServers: []config.AgentServer{
+		AgentServers: []AgentServer{
 			{Issuer: "https://agents.example.com", JwksURI: "https://agents.example.com/jwks.json"},
 		},
 		SignatureWindow:            60 * time.Second,
-		AllowedJWTTypes:            []string{config.JWTTypeAuth},
-		AllowedSignatureKeySchemes: []string{config.SchemeJWT},
+		AllowedJWTTypes:            []string{"aa-auth+jwt"},
+		AllowedSignatureKeySchemes: []string{"jwt"},
 	}
 
-	res := Verify(rc, "GET", "res.example.com", "/api", headers, mockJwks)
+	res := Verify(context.Background(), opts, "GET", "res.example.com", "/api", headers, mockJwks)
 	if res.Err != ErrDisallowedJWTType {
 		t.Fatalf("expected ErrDisallowedJWTType, got %v (diag=%+v)", res.Err, res.Diagnostics)
 	}

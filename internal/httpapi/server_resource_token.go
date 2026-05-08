@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	pb "aauth-service/gen/proto"
-	"aauth-service/internal/aauth"
+	"aauth-service/pkg/aauth"
 	"aauth-service/internal/config"
+	"aauth-service/internal/extauthz"
 	"aauth-service/internal/logging"
 	"aauth-service/internal/policy"
 )
@@ -21,7 +21,7 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 	}
 
 	// 1. Convert HTTP headers
-	headers := make(map[string][]string)
+	headers := make(http.Header)
 	for k, v := range r.Header {
 		headers[k] = v
 	}
@@ -34,12 +34,13 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 	}
 
 	// Pre-process headers to be lower-case to match how ExtAuthZ does it
-	lowerHeaders := make(map[string][]string)
+	lowerHeaders := make(http.Header)
 	for k, v := range headers {
 		lowerHeaders[strings.ToLower(k)] = v
 	}
 
-	res := aauth.Verify(rc, r.Method, r.Host, path, lowerHeaders, s.jwksClient)
+	verifyOpts := extauthz.BuildVerifyOptions(rc)
+	res := aauth.Verify(r.Context(), verifyOpts, r.Method, r.Host, path, lowerHeaders, s.jwksClient)
 	if res.Err != nil {
 		if res.Diagnostics != nil {
 			log.Printf("resource_token verify failed resource=%s method=%s host=%s path=%s scheme=%s stage=%s error=%s detail=%q",
@@ -73,7 +74,7 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	aud := aauth.ResolveResourceTokenAud(rc)
+	aud := extauthz.ResolveResourceTokenAud(rc)
 	if aud == "" && rc.Access.Require == "auth-token" {
 		http.Error(w, "Resource missing person server issuer", http.StatusInternalServerError)
 		return
@@ -115,7 +116,8 @@ func (s *Server) handleResourceToken(w http.ResponseWriter, r *http.Request, rc 
 		return
 	}
 
-	tokenStr, err := aauth.MintResourceToken(rc, claims, rc.PrivateKey)
+	mintOpts := extauthz.BuildMintOptions(rc, aud)
+	tokenStr, err := aauth.MintResourceToken(mintOpts, claims)
 	if err != nil {
 		http.Error(w, "Failed to mint token", http.StatusInternalServerError)
 		return
@@ -140,15 +142,19 @@ func (s *Server) writeChallenge(w http.ResponseWriter, rc *config.ResourceConfig
 	}
 
 	issueToken := (hint != nil && hint.AgentJKT != "")
-	challenge := aauth.NewChallenge(rc, authErr, hint, issueToken)
-	resp := challenge.Response()
+	challenge := aauth.NewChallenge(extauthz.BuildChallengeOptions(rc), authErr, hint, issueToken)
+	cr := challenge.Build()
 
-	denied := resp.HttpResponse.(*pb.CheckResponse_DeniedResponse).DeniedResponse
-
-	for _, hdr := range denied.Headers {
-		w.Header().Add(hdr.Header.Key, hdr.Header.Value)
+	for k, vs := range cr.Headers {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
 	}
 
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(denied.Body))
+	status := cr.Status
+	if status == 0 {
+		status = http.StatusUnauthorized
+	}
+	w.WriteHeader(status)
+	w.Write(cr.Body)
 }

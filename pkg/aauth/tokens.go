@@ -12,8 +12,6 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jws"
-
-	"aauth-service/internal/config"
 )
 
 type ResourceTokenClaims struct {
@@ -33,18 +31,6 @@ type JOSEHeader struct {
 	Typ string `json:"typ"`
 	Alg string `json:"alg"`
 	Kid string `json:"kid"`
-}
-
-// ResolveResourceTokenAud returns the configured audience for resource tokens.
-// Mode 3 pins this to the configured Person Server issuer.
-func ResolveResourceTokenAud(rc *config.ResourceConfig) string {
-	if rc == nil {
-		return ""
-	}
-	if rc.PersonServer.Issuer != "" {
-		return rc.PersonServer.Issuer
-	}
-	return ""
 }
 
 func ParseAndVerifyResourceToken(token string, set jwk.Set, expectedAud string, allowInsecureISS bool) (*ResourceTokenClaims, error) {
@@ -110,7 +96,7 @@ func newJTI() string {
 }
 
 // MintResourceToken creates a signed resource-token JWT.
-func MintResourceToken(rc *config.ResourceConfig, claims ResourceTokenClaims, privKey ed25519.PrivateKey) (string, error) {
+func MintResourceToken(opts MintResourceTokenOptions, claims ResourceTokenClaims) (string, error) {
 	// Set mandatory fields that the caller should not have to think about.
 	claims.Dwk = "aauth-resource.json"
 	if claims.Iat == 0 {
@@ -123,7 +109,7 @@ func MintResourceToken(rc *config.ResourceConfig, claims ResourceTokenClaims, pr
 	header := JOSEHeader{
 		Typ: "aa-resource+jwt",
 		Alg: "EdDSA",
-		Kid: rc.SigningKey.Kid,
+		Kid: opts.SigningKeyKid,
 	}
 
 	headerBytes, err := json.Marshal(header)
@@ -141,7 +127,14 @@ func MintResourceToken(rc *config.ResourceConfig, claims ResourceTokenClaims, pr
 
 	unsignedToken := headerB64 + "." + claimsB64
 
-	sig := ed25519.Sign(privKey, []byte(unsignedToken))
+	if opts.SigningKey == nil {
+		return "", fmt.Errorf("missing signing key")
+	}
+
+	sig, err := opts.SigningKey.Sign(rand.Reader, []byte(unsignedToken), crypto.Hash(0))
+	if err != nil {
+		return "", fmt.Errorf("sign resource token: %w", err)
+	}
 	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
 
 	return unsignedToken + "." + sigB64, nil

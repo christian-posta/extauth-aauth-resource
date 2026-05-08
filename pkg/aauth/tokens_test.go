@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"aauth-service/internal/config"
 )
 
 func TestMintResourceToken(t *testing.T) {
@@ -17,10 +15,11 @@ func TestMintResourceToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rc := &config.ResourceConfig{
-		SigningKey: config.SigningKey{
-			Kid: "test-kid-1",
-		},
+	opts := MintResourceTokenOptions{
+		Issuer:        "https://resource.example.com",
+		Aud:           "https://auth.example.com",
+		SigningKeyKid: "test-kid-1",
+		SigningKey:    priv,
 	}
 
 	claims := ResourceTokenClaims{
@@ -31,7 +30,7 @@ func TestMintResourceToken(t *testing.T) {
 		Jti:      "test-jti-1",
 	}
 
-	token, err := MintResourceToken(rc, claims, priv)
+	token, err := MintResourceToken(opts, claims)
 	if err != nil {
 		t.Fatalf("MintResourceToken failed: %v", err)
 	}
@@ -75,29 +74,6 @@ func TestMintResourceToken(t *testing.T) {
 	signedContent := parts[0] + "." + parts[1]
 	if !ed25519.Verify(pub, []byte(signedContent), sig) {
 		t.Errorf("token signature verification failed")
-	}
-}
-
-func TestResolveResourceTokenAud(t *testing.T) {
-	rc := &config.ResourceConfig{
-		PersonServer: config.PersonServer{
-			Issuer: "https://ps.example.com",
-		},
-		AuthServers: []config.AuthServer{
-			{Issuer: "https://auth.example.com"},
-		},
-		AuthorizationEndpointOverride: "https://override.example.com/resource/token",
-	}
-	if got := ResolveResourceTokenAud(rc); got != "https://ps.example.com" {
-		t.Fatalf("got %q want %q", got, "https://ps.example.com")
-	}
-
-	rc = &config.ResourceConfig{
-		AuthServers:                   []config.AuthServer{{Issuer: "https://auth.example.com"}},
-		AuthorizationEndpointOverride: "https://override.example.com/resource/token",
-	}
-	if got := ResolveResourceTokenAud(rc); got != "" {
-		t.Fatalf("got %q want empty", got)
 	}
 }
 

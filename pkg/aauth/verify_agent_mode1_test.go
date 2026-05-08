@@ -1,16 +1,17 @@
 package aauth
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"aauth-service/internal/config"
 	"aauth-service/internal/jwksfetch"
 	"aauth-service/pkg/httpsig"
 	"aauth-service/pkg/httpsig/structfields"
@@ -71,7 +72,7 @@ func TestVerifyRejectsUnexpectedAgentDwkBeforeJWKSFetch(t *testing.T) {
 	token := unsignedToken + "." + base64.RawURLEncoding.EncodeToString(sig)
 
 	sigKeyVal := `sig=jwt;jwt="` + token + `"`
-	headers := map[string][]string{
+	headers := http.Header{
 		"signature-key": {sigKeyVal},
 	}
 
@@ -99,16 +100,16 @@ func TestVerifyRejectsUnexpectedAgentDwkBeforeJWKSFetch(t *testing.T) {
 	headers["signature-input"] = []string{sigInputStr}
 	headers["signature"] = []string{`sig=:` + base64.StdEncoding.EncodeToString(sigBytes) + `:`}
 
-	rc := &config.ResourceConfig{
+	opts := VerifyOptions{
 		Issuer: "https://resource.example.com",
-		AgentServers: []config.AgentServer{
+		AgentServers: []AgentServer{
 			{Issuer: "https://agents.example.com", JwksURI: "https://agents.example.com/jwks.json"},
 		},
 		SignatureWindow: 60 * time.Second,
 	}
 
 	mockJwks := jwksfetch.NewMockClient()
-	result := Verify(rc, "GET", "resource.example.com", "/api", headers, mockJwks)
+	result := Verify(context.Background(), opts, "GET", "resource.example.com", "/api", headers, mockJwks)
 	if result.Err != ErrInvalidJWT {
 		t.Fatalf("expected ErrInvalidJWT, got %v", result.Err)
 	}
