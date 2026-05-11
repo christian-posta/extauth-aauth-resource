@@ -11,8 +11,8 @@ import (
 	pb "aauth-service/gen/proto"
 	"aauth-service/internal/config"
 	"aauth-service/internal/extauthz"
-	"aauth-service/pkg/httpsig"
-	"aauth-service/pkg/httpsig/structfields"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig/structfields"
 )
 
 func TestHandlerChallengeWithToken(t *testing.T) {

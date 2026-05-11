@@ -10,10 +10,13 @@
 
 # Go build outputs at repo root (go build -o …)
 /aauth-service
+/agent-client
 /policy-engine
 /sign-request
+/sign-request-util
 /debug-extauthz
 /integration-test
+/integration-test-mode3
 
 # Test binary, built with `go test -c`
 *.test

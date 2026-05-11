@@ -12,7 +12,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"aauth-service/internal/config"
 	"aauth-service/internal/metrics"
-	"aauth-service/pkg/aauth/keys"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth/keys"
 )
 
 type Client interface {

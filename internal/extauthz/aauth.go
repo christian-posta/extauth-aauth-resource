@@ -9,7 +9,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/pkg/aauth"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth"
 	"aauth-service/internal/config"
 	"aauth-service/internal/logging"
 	"aauth-service/internal/metrics"

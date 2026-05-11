@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"aauth-service/pkg/httpsig"
-	"aauth-service/pkg/httpsig/structfields"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig/structfields"
 )
 
 func main() {

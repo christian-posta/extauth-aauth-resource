@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/pkg/aauth"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth"
 	"aauth-service/internal/config"
 )
 

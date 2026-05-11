@@ -15,8 +15,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	pb "aauth-service/gen/proto"
-	"aauth-service/pkg/httpsig"
-	"aauth-service/pkg/httpsig/structfields"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig/structfields"
 )
 
 func main() {

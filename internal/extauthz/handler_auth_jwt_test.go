@@ -18,8 +18,8 @@ import (
 	"aauth-service/internal/jwksfetch"
 	"aauth-service/internal/policy"
 	"aauth-service/internal/resource"
-	"aauth-service/pkg/httpsig"
-	"aauth-service/pkg/httpsig/structfields"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig"
+	"github.com/christian-posta/aauth-go-library/pkg/httpsig/structfields"
 )
 
 func TestHandlerAuthJWT(t *testing.T) {

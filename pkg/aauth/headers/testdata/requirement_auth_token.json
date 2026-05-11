@@ -1,5 +1,0 @@
-{
-  "header": "requirement=auth-token, resource-token=\"eyJhbGciOiJFZERTQSJ9.payload.sig\"",
-  "want_type": "auth-token",
-  "want_resource_token": "eyJhbGciOiJFZERTQSJ9.payload.sig"
-}

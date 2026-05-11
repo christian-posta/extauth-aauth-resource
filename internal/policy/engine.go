@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	"aauth-service/pkg/aauth"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth"
 )
 
 type Header struct {

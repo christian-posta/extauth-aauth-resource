@@ -1,5 +1,0 @@
-{
-  "header": "sig1=(\"@method\" \"@authority\" \"@path\");sigkey=jkt, sig2=(\"@method\" \"@authority\" \"@path\");sigkey=uri",
-  "want_key_types": ["jkt", "uri"],
-  "want_components": ["@method", "@authority", "@path"]
-}

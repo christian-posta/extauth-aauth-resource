@@ -18,7 +18,7 @@ import (
 	"net/url"
 	"strings"
 
-	"aauth-service/pkg/aauth/agent"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth/agent"
 )
 
 func main() {

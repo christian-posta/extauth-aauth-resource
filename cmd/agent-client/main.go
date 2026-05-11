@@ -33,7 +33,7 @@ import (
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 
-	"aauth-service/pkg/aauth/agent"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth/agent"
 )
 
 func main() {

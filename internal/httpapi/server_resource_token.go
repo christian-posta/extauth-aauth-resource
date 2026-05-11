@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"aauth-service/pkg/aauth"
+	"github.com/christian-posta/aauth-go-library/pkg/aauth"
 	"aauth-service/internal/config"
 	"aauth-service/internal/extauthz"
 	"aauth-service/internal/logging"

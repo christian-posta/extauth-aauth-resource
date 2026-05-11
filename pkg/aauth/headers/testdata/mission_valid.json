@@ -1,5 +1,0 @@
-{
-  "header": "approver=\"https://ps.example\", s256=\"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk\"",
-  "want_approver": "https://ps.example",
-  "want_hash": "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
-}

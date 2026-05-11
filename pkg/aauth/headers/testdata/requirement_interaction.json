@@ -1,6 +1,0 @@
-{
-  "header": "requirement=interaction, url=\"https://example.com/interact\", code=\"A1B2-C3D4\"",
-  "want_type": "interaction",
-  "want_url": "https://example.com/interact",
-  "want_code": "A1B2-C3D4"
-}
