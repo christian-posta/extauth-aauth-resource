@@ -1,0 +1,24 @@
+listen:
+  grpc: ":7070"
+  http: ":8080"
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl: 30s
+  max_entries: 1000
+
+resources:
+  - id: backend-api
+    issuer: http://localhost:3001
+    client_name: Example Backend API
+    hosts:
+      - localhost:3001      # match Host after agentgateway urlRewrite (see test-agw.yaml)
+    signing_key:
+      kid: rsk-1
+      alg: EdDSA
+      private_key_file: resource_key.pem
+    signature_window: 60s
+    allow_pseudonymous: true   # accept hwk-scheme bare keys
+    strip_signature_headers: true
+    policy:
+      name: default

@@ -1,14 +1,37 @@
 # agentgateway config for the hello-world walkthrough.
 # See docs/hello-world.md.
 #
-# Listens on :3001, delegates auth to localhost:7070 (aauth-service), and
-# proxies to the agent-client's /echo endpoint on 127.0.0.1:9099. The same
+# Listens on :3001. Routes /.well-known/* and /resource/* to the AAuth HTTP API
+# on :8090 (no ext_authz), with urlRewrite.authority=localhost:3001 so Host matches
+# issuer / aauth-config hosts. Other traffic: ext_authz → localhost:7070 then
+# proxied to the agent-client's /echo endpoint on 127.0.0.1:9099. The same
 # binary serves /.well-known/aauth-agent.json + /.well-known/jwks.json, so
 # the demo runs with no external backend.
 binds:
   - port: 3001
     listeners:
-      - routes:
+      - protocol: HTTP
+        routes:
+          - name: aauth-dwk
+            matches:
+              - path:
+                  pathPrefix: /.well-known/
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "127.0.0.1:8090"
+          - name: aauth-resource-http
+            matches:
+              - path:
+                  pathPrefix: /resource/
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "127.0.0.1:8090"
           - policies:
               extAuthz:
                 host: "localhost:7070"

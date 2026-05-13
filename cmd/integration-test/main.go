@@ -71,7 +71,7 @@ func main() {
 		req := &pb.CheckRequest{
 			Attributes: &pb.AttributeContext{
 				ContextExtensions: map[string]string{
-					"aauth_resource_id": "mcp-api",
+					"aauth_resource_id": "backend-api",
 				},
 				Request: &pb.AttributeContext_Request{
 					Http: &pb.AttributeContext_HttpRequest{

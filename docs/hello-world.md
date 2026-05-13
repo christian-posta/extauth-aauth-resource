@@ -75,7 +75,7 @@ AAUTH_CONFIG=demo/hello-world/aauth-config.yaml ./aauth-service
 You should see:
 
 ```
-Configured resource id="hello-world-api" issuer="http://localhost:8090" hosts=[localhost localhost:3001 localhost:8090]
+Configured resource id="hello-world-api" issuer="http://localhost:3001" hosts=[localhost:3001]
 Starting HTTP API on :8090
 Policy Engine starting on :7070
 ```
@@ -94,7 +94,14 @@ agentgateway -f demo/hello-world/agw-config.yaml
 
 Listens on `:3001`, delegates auth to `localhost:7070`, and proxies the
 incoming request to `127.0.0.1:9099` — which is the same `agent-client`
-process we'll start next.
+process we'll start next. Resource discovery (`/.well-known/*`, `/resource/*`)
+is forwarded to the AAuth HTTP API on `:8090` without ExtAuthZ.
+
+You can confirm the resource metadata through the gateway:
+
+```bash
+curl -s http://localhost:3001/.well-known/aauth-resource.json | jq .
+```
 
 ## 5. Start the agent server (long-lived half of agent-client)
 

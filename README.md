@@ -1,6 +1,6 @@
 # AAuth Resource-Side ExtAuthZ Service
 
-A multi-tenant AAuth resource-side service implemented in Go. Protect backend APIs with the AAuth protocol by deploying it behind an Envoy proxy or AgentGateway using the ExtAuthZ gRPC protocol.
+A multi-tenant AAuth resource-side service implemented in Go. Protect backend APIs with the AAuth protocol by deploying it behind [AgentGateway](https://github.com/agentgateway/agentgateway/) or Envoy proxy using the [ExtAuthZ](https://www.envoyproxy.io/docs/envoy/latest/api-v3/extensions/filters/http/ext_authz/v3/ext_authz.proto) protocol.
 
 Implements:
 - [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421) HTTP Message Signatures
@@ -8,7 +8,7 @@ Implements:
 - [Dick Hardt's AAuth protocol draft](https://github.com/dickhardt/AAuth) — `Signature-Key` schemes `hwk`, `jwt`, `jwks_uri`
 
 > **Looking for the standalone Go library?** The core AAuth protocol logic (signature verification, JWT token validation, challenge building) is also available as a transport-agnostic library with no gRPC or Envoy dependencies:
-> [`github.com/christian-posta/aauth-go`](https://github.com/christian-posta/aauth-go)
+> [`github.com/christian-posta/aauth-go-library`](https://github.com/christian-posta/aauth-go-library)
 
 ---
 
@@ -16,7 +16,7 @@ Implements:
 
 | Goal | Guide |
 |------|-------|
-| **End-to-end hello world** — run the resource service + agentgateway + a Go agent client that proves identity at the `identified` level (`jwks_uri` and `aa-agent+jwt` schemes) | [docs/hello-world.md](docs/hello-world.md) |
+| **End-to-end hello world** — run the extauth service + agentgateway + a Go agent client that proves identity at the `identified` level (`jwks_uri` and `aa-agent+jwt` schemes) | [docs/hello-world.md](docs/hello-world.md) |
 | **Mode 3 (authorized)** — three-party flow where an Access Server issues an `aa-auth+jwt` after the agent exchanges a resource-token | [docs/mode3.md](docs/mode3.md) |
 | **Reference config** — every supported YAML option with inline comments | [aauth-config.example.yaml](aauth-config.example.yaml) |
 
@@ -25,7 +25,7 @@ Implements:
 make build build-agent-client
 ```
 
-Prerequisites: Go 1.24+, [`agentgateway`](https://github.com/agentgateway/agentgateway) on `$PATH`, free ports `3001 7070 8090 9099`.
+Prerequisites: Go 1.24+, [`agentgateway`](https://github.com/agentgateway/agentgateway) on `$PATH`, free ports `3001 7070 8080 9099`, and outbound HTTPS if you use the default `test-agw.yaml` upstream ([httpbin.org](https://httpbin.org/)).
 
 ---
 
@@ -34,7 +34,7 @@ Prerequisites: Go 1.24+, [`agentgateway`](https://github.com/agentgateway/agentg
 - **Multi-Tenant**: A single deployment can protect multiple distinct APIs, identified either by `aauth_resource_id` in agentgateway's `contextExtensions` or by Host header.
 - **Dual-Listener Architecture**:
   - `gRPC :7070` — Envoy/agentgateway ExtAuthZ endpoint
-  - `HTTP :8080` — Serves `/.well-known/aauth-resource.json`, `/.well-known/jwks.json`, and `/resource/token`
+  - `HTTP :8080` — Binds `/.well-known/aauth-resource.json`, `/.well-known/jwks.json`, and `/resource/token` (with `test-agw.yaml`, call these on **`http://localhost:3001`** so traffic goes through agentgateway; the gateway forwards to `:8080` without ExtAuthZ)
 - **Identity Levels**: `pseudonymous` (inline bare key), `identified` (agent+jwt or jwks_uri), `authorized` (auth+jwt)
 - **AAuth Challenges**: Generates `AAuth-Requirement` 401 responses; automatically mints and embeds `resource-token`s when the agent has provided signing-key material
 - **JWKS Discovery**: Fetches agent/auth server keys via `{issuer}/.well-known/{dwk}` per the AAuth spec
@@ -42,7 +42,7 @@ Prerequisites: Go 1.24+, [`agentgateway`](https://github.com/agentgateway/agentg
 
 ## Access Modes
 
-Resources can now be configured independently for either Mode 1 or Mode 3:
+Resources can now be configured independently for either [Identity Access Mode (Mode 1)](https://explorer.aauth.dev/access/identity-based) or [PS-asserted Access Mode (Mode 3)](https://explorer.aauth.dev/access/ps-asserted):
 
 - `access.require: identity` keeps the existing Mode 1 behavior. A valid `aa-agent+jwt`, `jwks_uri`, or allowed `hwk` request is enough to pass auth.
 - `access.require: auth-token` enables Mode 3. A valid Mode 1 request is challenged with `AAuth-Requirement: requirement=auth-token; resource-token="..."` until the caller retries with an `aa-auth+jwt`.
@@ -95,7 +95,7 @@ make generate-key
 
 The file `aauth-config.example.yaml` in the repository root lists every supported option with inline comments (including `allowed_signature_key_schemes` and `allowed_jwt_types`).
 
-This config defines a single protected resource (`mcp-api`) that allows pseudonymous access:
+This config defines a single protected resource (`backend-api`) that allows pseudonymous access:
 
 ```yaml
 listen:
@@ -108,13 +108,11 @@ jwks_cache:
   max_entries: 1000
 
 resources:
-  - id: mcp-api
-    issuer: http://localhost:8080
-    client_name: Example MCP API
+  - id: backend-api
+    issuer: http://localhost:3001
+    client_name: Example Backend API
     hosts:
-      - localhost:8080
-      - localhost:3001
-      - localhost           # agentgateway strips the port — include the bare hostname
+      - localhost:3001      # Host after agentgateway urlRewrite (see §4 / test-agw.yaml)
     signing_key:
       kid: rsk-1
       alg: EdDSA
@@ -126,36 +124,54 @@ resources:
       name: default
 ```
 
-> **Note on `hosts`**: agentgateway strips the port number before putting the `Host` value into the CheckRequest (e.g. `localhost:3001` becomes `localhost`). You must include the bare hostname alongside any `host:port` forms so the registry lookup succeeds.
-
-The gRPC listener is taken from `listen.grpc`. The legacy `--port` flag still works as an override, but the config file is now the primary source of truth.
 
 ---
 
-### 4. Create `agw-config.yaml`
+### 4. Create `test-agw.yaml`
 
-Configure agentgateway to proxy to an MCP backend and delegate all authorization decisions to our service:
+Configure agentgateway to proxy plain HTTP to an upstream host and delegate authorization to this service. The checked-in `test-agw.yaml` also routes `/.well-known/*` and `/resource/*` to this service's HTTP listener **without** ExtAuthZ, and uses `urlRewrite.authority` so the upstream sees `Host: localhost:3001` (same idea as `aauth-full-demo/agentgateway/config-policy.yaml`). That keeps `hosts` in `aauth-config.yaml` to a single value matching `issuer`.
 
 ```yaml
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
 binds:
 - port: 3001
   listeners:
-  - routes:
+  - protocol: HTTP
+    routes:
+    - name: aauth-dwk
+      matches:
+      - path:
+          pathPrefix: /.well-known/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3001
+      backends:
+      - host: "localhost:8080"
+    - name: aauth-resource-http
+      matches:
+      - path:
+          pathPrefix: /resource/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3001
+      backends:
+      - host: "localhost:8080"
     - policies:
         extAuthz:
           host: "localhost:7070"
           protocol:
             grpc:
               context:
-                aauth_resource_id: "mcp-api"   # tells the service which resource config to use
+                aauth_resource_id: "backend-api"   # tells the service which resource config to use
       backends:
-      - mcp:
-          targets:
-          - name: everything
-            stdio:
-              cmd: npx
-              args: ["-y", "@modelcontextprotocol/server-everything"]
+      - host: "httpbin.org:443"
+        policies:
+          backendTLS: {}
 ```
+
+Swap `httpbin.org:443` for any `host:port` you control (for example a local [httpbin](https://hub.docker.com/r/kennethreitz/httpbin) container on `127.0.0.1:8000` without `backendTLS`).
 
 Without `context.aauth_resource_id` the service falls back to Host-based resource lookup, which also works as long as the `hosts` list in the config includes the incoming host. Requests that do not map to a configured resource are denied.
 
@@ -178,7 +194,7 @@ Starting HTTP API on :8080
 
 **Terminal 2** — agentgateway:
 ```bash
-agentgateway -f agw-config.yaml
+agentgateway -f test-agw.yaml
 ```
 
 ---
@@ -186,7 +202,7 @@ agentgateway -f agw-config.yaml
 ### 6. Test 1: Unsigned Request → 401 Challenge
 
 ```bash
-curl -i http://localhost:3001/ -H "Host: localhost"
+curl -i "http://localhost:3001/get" -H "Host: localhost:3001"
 ```
 
 Expected:
@@ -208,51 +224,48 @@ The `AAuth-Requirement` header tells the agent that a signed request (or auth to
 The `cmd/sign-request` tool generates a fresh Ed25519 keypair, builds a valid RFC 9421 HTTP Message Signature, and prints the `curl` command:
 
 ```bash
-./sign-request -method GET -authority localhost -path /
+./sign-request -method GET -authority localhost:3001 -path /get
 ```
 
-> **Important**: sign with `-authority localhost`, not `localhost:3001`. agentgateway passes the bare hostname to the ExtAuthZ service — what you sign must match what the service sees.
+Which prints a `curl` command like this:
 
-Sample output:
 ```bash
-curl -si -X GET 'http://localhost/' \
+curl -si -X GET 'http://localhost:3001/get' \
   -H 'Content-Type: application/json' \
-  -H 'signature-key: sig=hwk;kty="OKP";crv="Ed25519";x="<base64url-pubkey>"' \
-  -H 'signature-input: sig=("@method" "@authority" "@path" "signature-key");created=...;alg="ed25519"' \
-  -H 'signature: sig=:<base64-sig>:'
+  -H 'signature-key: sig=hwk;kty="OKP";crv="Ed25519";x="OguDVxeWMJpR03m4peUnFUoG8JSApnzxUhelgXl9hhM"' \
+  -H 'signature-input: sig=("@method" "@authority" "@path" "signature-key");created=1778637537;alg="ed25519";keyid="sig"' \
+  -H 'signature: sig=:dMCBMoZ/1pZkyJzbIVUJPYUhoz2rSknT3Ogwx6FhJ1KE0k2pAfpaQrBtynpHpzGkurVR2W5nLXeDAPm23wfTDg==:'
+
 ```
 
-Send to agentgateway on port 3001 (override the URL but keep the `Host: localhost` default):
+If you run that curl, you should see a response like this:
 
-```bash
-./sign-request -method GET -authority localhost -path / \
-  | sed 's|http://localhost/|http://localhost:3001/|' \
-  | bash
-```
-
-Or more explicitly:
-
-```bash
-# Capture headers
-SIGNED=$(./sign-request -method GET -authority localhost -path /)
-SK=$(echo "$SIGNED" | grep "signature-key:"  | sed "s/.*'signature-key: //;s/'.*//")
-SI=$(echo "$SIGNED" | grep "signature-input:" | sed "s/.*'signature-input: //;s/'.*//")
-SG=$(echo "$SIGNED" | grep "^  -H 'signature: " | sed "s/.*'signature: //;s/'.*//")
-
-curl -i http://localhost:3001/ \
-  -H "Host: localhost" \
-  -H "signature-key: $SK" \
-  -H "signature-input: $SI" \
-  -H "signature: $SG"
-```
-
-Expected — auth passes, backend error (not a 401):
 ```http
-HTTP/1.1 406 Not Acceptable
-mcp: client must accept both application/json and text/event-stream
-```
+HTTP/1.1 200 OK
+date: Wed, 13 May 2026 01:59:03 GMT
+content-type: application/json
+content-length: 402
+server: gunicorn/19.9.0
+access-control-allow-origin: *
+access-control-allow-credentials: true
 
-The `406` is the MCP backend rejecting the request due to missing `Accept` headers. The fact that it is **not** a `401` proves the auth gate was cleared.
+{
+  "args": {},
+  "headers": {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "Host": "httpbin.org",
+    "User-Agent": "curl/8.7.1",
+    "X-Aauth-Jkt": "L8gISWEsmljmLlBHuzIESHwGEeLYWdu-P6WkAnF5NW0",
+    "X-Aauth-Level": "pseudonymous",
+    "X-Amzn-Trace-Id": "Root=1-6a03dae7-3036405c1750377c78a096c2"
+  },
+  "origin": "166.194.143.125",
+  "url": "https://httpbin.org/get"
+}
+
+```
+The body is httpbin’s `/get` echo payload (your request URL, headers, and origin). A **non-401** response proves ExtAuthZ allowed the request and the gateway reached the upstream.
 
 ---
 
@@ -261,28 +274,30 @@ The `406` is the MCP backend rejecting the request due to missing `Accept` heade
 Check the structured decision log in the AAuth service terminal:
 
 ```json
-{"time":"...","resource_id":"mcp-api","level":"pseudonymous","result":"allowed","latency_ms":0}
+{"time":"...","resource_id":"backend-api","level":"pseudonymous","result":"allowed","latency_ms":0}
 ```
 
-Upstream headers added by the service (visible to the backend):
+Upstream headers added by the service (visible to httpbin and echoed in the JSON `headers` object when you call `/get`):
 - `x-aauth-level: pseudonymous`
 - `x-aauth-jkt: <RFC 7638 SHA-256 thumbprint of the signing key>`
 
 ---
 
-### 9. Test 4: JWKS and Metadata Endpoints
+### 9. Test 4: Resource JWKS and Metadata Endpoints
+
+Use agentgateway (`test-agw.yaml`) so discovery matches the same origin clients use for protected routes:
 
 ```bash
 # Resource metadata (tells agents where to get auth tokens and resource tokens)
-curl -s http://localhost:8080/.well-known/aauth-resource.json | jq .
+curl -s http://localhost:3001/.well-known/aauth-resource.json | jq .
 ```
 
 ```json
 {
-  "issuer": "http://localhost:8080",
-  "jwks_uri": "http://localhost:8080/.well-known/jwks.json",
-  "authorization_endpoint": "http://localhost:8080/resource/token",
-  "client_name": "Example MCP API",
+  "issuer": "http://localhost:3001",
+  "jwks_uri": "http://localhost:3001/.well-known/jwks.json",
+  "authorization_endpoint": "http://localhost:3001/resource/token",
+  "client_name": "Example Backend API",
   "signature_window": 60,
   "supported_scopes": null
 }
@@ -292,7 +307,7 @@ If a resource does not have a usable signing key, the metadata omits `authorizat
 
 ```bash
 # JWKS (public key used to verify resource-tokens the service mints)
-curl -s http://localhost:8080/.well-known/jwks.json | jq .
+curl -s http://localhost:3001/.well-known/jwks.json | jq .
 ```
 
 ```json
@@ -306,57 +321,6 @@ curl -s http://localhost:8080/.well-known/jwks.json | jq .
     "x": "<base64url-encoded-public-key>"
   }]
 }
-```
-
----
-
-### 10. Automated Integration Test
-
-A Python-based integration test that drives all of the above in one shot:
-
-```bash
-# With both services running:
-python3 - << 'EOF'
-import subprocess, urllib.request, json
-
-PASS, FAIL = 0, 0
-def ok(m):   global PASS; PASS += 1; print(f"  PASS: {m}")
-def fail(m): global FAIL; FAIL += 1; print(f"  FAIL: {m}")
-
-# TEST 1: unsigned → 401
-req = urllib.request.Request("http://localhost:3001/", method="GET")
-try:
-    urllib.request.urlopen(req)
-    fail("expected 401")
-except urllib.error.HTTPError as e:
-    ok(f"401") if e.code == 401 else fail(f"got {e.code}")
-    hdrs = dict(e.headers)
-    ok("AAuth-Requirement") if 'aauth-requirement' in hdrs else fail("missing AAuth-Requirement")
-
-# TEST 2: signed hwk → not 401
-r = subprocess.run(["./sign-request","-method","GET","-authority","localhost","-path","/"],
-                   capture_output=True, text=True)
-headers = {}
-for line in r.stdout.split('\n'):
-    for k in ['signature-key','signature-input','signature']:
-        if f"'{k}:" in line:
-            headers[k] = line.split(f"'{k}: ",1)[1].rstrip("' \\")
-
-req2 = urllib.request.Request("http://localhost:3001/", method="GET")
-req2.add_header("Host","localhost")
-for k,v in headers.items(): req2.add_header(k,v)
-try:
-    urllib.request.urlopen(req2)
-    ok("allowed (200)")
-except urllib.error.HTTPError as e:
-    fail(f"got 401 — auth rejected signed request") if e.code==401 else ok(f"allowed ({e.code})")
-
-# TEST 3: JWKS
-jwks = json.loads(urllib.request.urlopen("http://localhost:8080/.well-known/jwks.json").read())
-ok(f"JWKS has {len(jwks['keys'])} key(s) with x={bool(jwks['keys'][0].get('x'))}") if jwks.get('keys') else fail("no keys")
-
-print(f"\nPassed: {PASS}  Failed: {FAIL}")
-EOF
 ```
 
 ---
@@ -377,9 +341,7 @@ The `Signature-Key` header follows the AAuth spec (RFC 8941 Dictionary where the
 
 ## Agentgateway Integration Notes
 
-1. **Port stripping**: agentgateway passes the bare hostname (without port) as the `host` in CheckRequests. Include the bare hostname in the resource's `hosts` list and sign with `-authority <hostname>` (no port).
-
-2. **Context extensions**: the `aauth_resource_id` extension maps a route directly to a resource config:
+1. **Context extensions**: the `aauth_resource_id` extension maps a route directly to a resource config:
    ```yaml
    extAuthz:
      host: "localhost:7070"
@@ -390,7 +352,7 @@ The `Signature-Key` header follows the AAuth spec (RFC 8941 Dictionary where the
    ```
    Without this, the service falls back to Host-header based lookup.
 
-3. **Strip signature headers**: set `strip_signature_headers: true` in the resource config to remove `Signature`, `Signature-Input`, and `Signature-Key` before the request reaches the backend.
+2. **Strip signature headers**: set `strip_signature_headers: true` in the resource config to remove `Signature`, `Signature-Input`, and `Signature-Key` before the request reaches the backend.
 
 ---
 
@@ -472,7 +434,7 @@ Prometheus metrics at `GET http://localhost:8080/metrics`:
 
 Structured JSON decision log on stdout for every check:
 ```json
-{"time":"...","resource_id":"mcp-api","level":"pseudonymous","result":"allowed","latency_ms":0}
+{"time":"...","resource_id":"backend-api","level":"pseudonymous","result":"allowed","latency_ms":0}
 ```
 
 ---

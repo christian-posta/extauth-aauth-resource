@@ -2,6 +2,8 @@
 # Run with:  agentgateway -f demo/agentgateway-aauth.yaml
 #
 # Routes:
+#   /.well-known/*, /resource/* — forwarded to localhost:8080 (this service's
+#              HTTP listener) without ExtAuthZ
 #   /gemini  — AAuth-protected, extAuthz → localhost:7070
 #              Unsigned request  → 401 + AAuth-Requirement challenge header
 #              Signed request    → forwarded to Gemini (needs GEMINI_API_KEY env)
@@ -10,7 +12,28 @@
 binds:
 - port: 3000
   listeners:
-  - routes:
+  - protocol: HTTP
+    routes:
+    - name: aauth-dwk
+      matches:
+      - path:
+          pathPrefix: /.well-known/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3000
+      backends:
+      - host: "localhost:8080"
+    - name: aauth-resource-http
+      matches:
+      - path:
+          pathPrefix: /resource/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3000
+      backends:
+      - host: "localhost:8080"
     - name: aauth-gemini
       matches:
       - path:

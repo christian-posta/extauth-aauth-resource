@@ -3,6 +3,7 @@
 #
 #   gRPC :7070  — agentgateway ext_authz
 #   HTTP :8090  — /.well-known/aauth-resource.json + /.well-known/jwks.json
+#                 (also exposed at http://localhost:3001/... via agentgateway)
 #
 # The agent-client at http://127.0.0.1:9099 is registered as a trusted agent
 # server. allow_insecure_jwt_issuer enables aa-agent+jwt mode for localhost.
@@ -19,12 +20,10 @@ jwks_cache:
 
 resources:
   - id: hello-world-api
-    issuer: "http://localhost:8090"
+    issuer: "http://localhost:3001"
     client_name: Hello World API
     hosts:
-      - localhost          # bare hostname — agentgateway strips the port
-      - localhost:3001     # request as it arrives at agentgateway
-      - localhost:8090     # direct access to the resource metadata endpoints
+      - localhost:3001      # Host header after urlRewrite in demo/hello-world/agw-config.yaml
 
     signing_key:
       kid: rsk-hello

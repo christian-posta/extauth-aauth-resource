@@ -141,7 +141,7 @@ Example:
   },
   "resource": {
     "type": "aauth-resource",
-    "id": "mcp-api"
+    "id": "backend-api"
   },
   "action": {
     "name": "http.request"

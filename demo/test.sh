@@ -11,7 +11,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."  # run from repo root
 
 AGW="http://localhost:3000"
-AAUTH_HTTP="http://localhost:8080"
 ROUTE="/gemini/v1/chat/completions"
 BODY='{"model":"gemini-2.5-flash-lite","messages":[{"role":"user","content":"hello"}]}'
 
@@ -78,19 +77,28 @@ if echo "$resp2" | grep -qi "^x-aauth-level:"; then
   ok "x-aauth-level upstream header echoed by backend (if echo backend)"
 fi
 
-# ── 3. JWKS discovery endpoint ────────────────────────────────────────────────
-sep "TEST 3: AAuth HTTP API — JWKS at /.well-known/aauth-resource.json"
+# ── 3. Resource discovery via agentgateway (no extAuthz; see demo/agentgateway-aauth.yaml) ──
+sep "TEST 3: Resource metadata via agentgateway — GET /.well-known/aauth-resource.json"
 
-jwks=$(curl -sf "$AAUTH_HTTP/gemini-api/.well-known/aauth-resource.json" 2>/dev/null || echo "error")
-echo "  Response: ${jwks:0:200}"
+metadata=$(curl -sf "$AGW/.well-known/aauth-resource.json" 2>/dev/null || echo "error")
+echo "  Response: ${metadata:0:200}"
 
+echo "$metadata" | grep -q '"issuer"' \
+  && ok "resource metadata includes issuer" \
+  || fail "resource metadata error or missing issuer"
+
+echo "$metadata" | grep -q '"jwks_uri"' \
+  && ok "resource metadata includes jwks_uri" \
+  || fail "resource metadata missing jwks_uri"
+
+jwks=$(curl -sf "$AGW/.well-known/jwks.json" 2>/dev/null || echo "error")
 echo "$jwks" | grep -q '"keys"' \
-  && ok "JWKS endpoint returned keys array" \
-  || fail "JWKS endpoint error or missing 'keys' field"
+  && ok "JWKS document has keys array" \
+  || fail "JWKS error or missing keys"
 
 echo "$jwks" | grep -q '"kty"' \
-  && ok "Key entry has kty field" \
-  || fail "Key entry missing kty"
+  && ok "JWKS key entry has kty" \
+  || fail "JWKS key entry missing kty"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 sep "Results"

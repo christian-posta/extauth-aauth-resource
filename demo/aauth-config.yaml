@@ -12,10 +12,9 @@ jwks_cache:
 
 resources:
   - id: gemini-api
-    issuer: "http://localhost:8080"          # HTTP for local demo
+    issuer: "http://localhost:3000"          # agentgateway (see demo/agentgateway-aauth.yaml)
     hosts:
-      - "localhost:3000"
-      - "localhost"
+      - "localhost:3000"    # Host header after urlRewrite in demo/agentgateway-aauth.yaml
 
     signing_key:
       kid: "demo-key-1"

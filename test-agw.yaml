@@ -1,16 +1,42 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# ExtAuthZ to this repo's service, then proxy to public httpbin (HTTPS).
+# For /.well-known/* and /resource/*, urlRewrite.authority matches issuer so
+# aauth-config hosts can stay a single entry (see aauth-full-demo config-policy).
+# See https://agentgateway.dev/docs/standalone/latest/configuration/backends.md
+# and https://agentgateway.dev/docs/standalone/latest/configuration/security/backend-tls.md
 binds:
 - port: 3001
   listeners:
-  - routes:
+  - protocol: HTTP
+    routes:
+    - name: aauth-dwk
+      matches:
+      - path:
+          pathPrefix: /.well-known/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3001
+      backends:
+      - host: "localhost:8080"
+    - name: aauth-resource-http
+      matches:
+      - path:
+          pathPrefix: /resource/
+      policies:
+        urlRewrite:
+          authority:
+            full: localhost:3001
+      backends:
+      - host: "localhost:8080"
     - policies:
         extAuthz:
           host: "localhost:7070"
-          context_extensions:
-            aauth_resource_id: "mcp-api"
+          protocol:
+            grpc:
+              context:
+                aauth_resource_id: "backend-api"   # tells the service which resource config to use
       backends:
-      - mcp:
-          targets:
-          - name: everything
-            stdio:
-              cmd: npx
-              args: ["-y", "@modelcontextprotocol/server-everything"]
+      - host: "httpbin.org:443"
+        policies:
+          backendTLS: {}
