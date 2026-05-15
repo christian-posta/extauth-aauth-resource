@@ -106,3 +106,14 @@ func (r *Registry) ByIssuer(issuer string) []*config.ResourceConfig {
 	copy(out, resources)
 	return out
 }
+
+// All returns every registered ResourceConfig (order unspecified).
+func (r *Registry) All() []*config.ResourceConfig {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]*config.ResourceConfig, 0, len(r.byID))
+	for _, rc := range r.byID {
+		out = append(out, rc)
+	}
+	return out
+}

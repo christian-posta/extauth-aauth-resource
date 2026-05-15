@@ -1,15 +1,17 @@
-.PHONY: help build build-sign-request build-agent-client generate-key run clean generate deps
+.PHONY: help build build-sign-request build-agent-client build-integration-test-mode2 generate-key run clean generate deps
 
 # Default target
 help:
 	@echo "Available targets:"
-	@echo "  deps             - Install dependencies and generate protobuf code"
-	@echo "  build            - Build the aauth-service binary"
-	@echo "  build-sign-request - Build the sign-request utility tool"
-	@echo "  generate-key     - Generate Ed25519 keypair for resource signing"
-	@echo "  run              - Run the aauth-service service"
-	@echo "  clean            - Clean generated files and binaries"
-	@echo "  generate         - Generate protobuf code only"
+	@echo "  deps                          - Install dependencies and generate protobuf code"
+	@echo "  build                         - Build the aauth-service binary"
+	@echo "  build-sign-request            - Build the sign-request utility tool"
+	@echo "  build-agent-client            - Build the demo agent client"
+	@echo "  build-integration-test-mode2  - Build the Mode 2 integration test binary"
+	@echo "  generate-key                  - Generate Ed25519 keypair for resource signing"
+	@echo "  run                           - Run the aauth-service service"
+	@echo "  clean                         - Clean generated files and binaries"
+	@echo "  generate                      - Generate protobuf code only"
 
 # Install dependencies and generate protobuf code
 deps: generate
@@ -35,6 +37,10 @@ build-sign-request: deps
 build-agent-client: deps
 	go build -o agent-client ./cmd/agent-client
 
+# Build the Mode 2 integration test binary (see docs/mode2-github.md)
+build-integration-test-mode2: deps
+	go build -o integration-test-mode2 ./cmd/integration-test-mode2
+
 # Generate Ed25519 keypair for resource signing
 generate-key:
 	go run ./cmd/generate-key
@@ -45,7 +51,7 @@ run: build
 
 # Clean up
 clean:
-	rm -f aauth-service sign-request agent-client
+	rm -f aauth-service sign-request agent-client integration-test-mode2
 	rm -rf gen/
 
 # Check if protoc is installed

@@ -1,0 +1,69 @@
+# AAuth ExtAuthZ service config for Mode 2 fronted by agentgateway.
+#
+# Port layout (matches demo/agw-config-mode2.yaml):
+#   3001 — agentgateway public-facing listener (agents + browsers connect here)
+#   7070 — aauth-service gRPC ExtAuthZ (agentgateway calls this)
+#   8080 — aauth-service HTTP (interaction, OAuth callback; agentgateway routes /interaction, /oauth/* here)
+#   19100 — stub OAuth server started by integration-test-mode2
+#
+# Differences from demo/aauth-config-mode2.yaml (standalone):
+#   - issuer and redirect_uri_base point at the agentgateway URL (3001), not the
+#     aauth-service HTTP port (8080), because the browser and agent connect through agw.
+#   - hosts contains "localhost:3001" because agentgateway rewrites the Host header to
+#     localhost:3001 when forwarding to the aauth-service HTTP backend.
+#
+# Start the stack:
+#   AAUTH_CONFIG=demo/aauth-config-mode2-agw.yaml ./aauth-service &
+#   agentgateway -f demo/agw-config-mode2.yaml &
+#
+# Then run the integration test pointing at the agentgateway:
+#   ./integration-test-mode2 \
+#     --grpc 127.0.0.1:7070 \
+#     --resource-issuer http://localhost:3001 \
+#     --resource-id github-api \
+#     --authority localhost:3001 \
+#     --path /api/test \
+#     --stub-oauth-port 19100
+
+listen:
+  grpc: ":7070"
+  http: ":8080"
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl: 30s
+  max_entries: 1000
+
+resources:
+  - id: github-api
+    issuer: "http://localhost:3001"
+    hosts:
+      - "localhost:3001"
+
+    signing_key:
+      kid: "mode2-agw-key"
+      alg: "EdDSA"
+      private_key_file: "demo/resource_key.pem"
+
+    signature_window: 60s
+    allow_pseudonymous: true
+    strip_signature_headers: true
+
+    access:
+      require: interaction
+
+    # Stub OAuth server (started by the integration test on port 19100).
+    oauth_bridge:
+      authorize_url: "http://localhost:19100/oauth/authorize"
+      token_url:     "http://localhost:19100/oauth/token"
+      client_id:     "test-client"
+      client_secret: "test-secret"
+      scopes:
+        - "read:user"
+      use_pkce: true
+      # Browser reaches the callback through agentgateway on 3001.
+      redirect_uri_base: "http://localhost:3001"
+
+    agent_servers: []
+    policy:
+      name: default

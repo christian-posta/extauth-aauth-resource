@@ -150,3 +150,62 @@ resources:
       - jwt
     allowed_jwt_types:
       - aa-agent+jwt
+
+  # --- Mode 2 (resource-managed OAuth bridge) example --------------------------
+  # access.require: interaction tells the service to challenge agents with an
+  # interaction flow rather than accepting identity alone.  The oauth_bridge
+  # block configures the upstream OAuth provider this service acts as a client for.
+  # See docs/mode2-github.md for a complete walkthrough.
+  - id: github-api
+    issuer: https://api.example.com
+    hosts:
+      - api.example.com
+    signing_key:
+      kid: rsk-github
+      alg: EdDSA
+      private_key_file: github_resource.pem
+
+    signature_window: 60s
+    allow_pseudonymous: false
+    strip_signature_headers: true
+
+    # AES-256 key for encrypting OAuth tokens inside AAuth-Access blobs.
+    # Generate with: openssl rand -base64 32
+    # If omitted an ephemeral key is generated at startup (tokens invalid after restart).
+    opaque_token_key:
+      key_b64: "base64-encoded-32-byte-key-here"
+      # Alternatively load from a file:
+      # key_file: /etc/aauth/github_token.key
+
+    # How long the interaction flow may remain pending (default 15m).
+    interaction_ttl: 15m
+
+    # Optional: where to redirect the browser after OAuth completes.
+    # success_redirect: https://app.example.com/auth-done
+
+    access:
+      require: interaction
+
+    oauth_bridge:
+      # GitHub authorization and token endpoints.
+      authorize_url: "https://github.com/login/oauth/authorize"
+      token_url:     "https://github.com/login/oauth/access_token"
+      client_id:     "your-github-client-id"
+      client_secret: "your-github-client-secret"
+      scopes:
+        - "read:user"
+        - "repo"
+      # GitHub standard OAuth Apps do not support PKCE; set false.
+      use_pkce: false
+      # The callback URL registered in your GitHub OAuth App settings.
+      # Callback = {redirect_uri_base}/oauth/{resource-id}/callback
+      redirect_uri_base: "https://api.example.com"
+      # Optional: extra query params appended to the authorization URL.
+      # extra_auth_params:
+      #   prompt: consent
+
+    agent_servers:
+      - issuer: https://agents.example.com
+        jwks_uri: https://agents.example.com/.well-known/jwks.json
+    policy:
+      name: default

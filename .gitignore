@@ -51,3 +51,5 @@ curl_cmd.sh
 .gocache/
 .cursor/
 .claude/
+
+*.ceposta.yaml

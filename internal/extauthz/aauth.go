@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
@@ -25,12 +26,21 @@ type jwksFetcher interface {
 type AAuthHandler struct {
 	policyEngine policy.Engine
 	jwksClient   jwksFetcher
+	mode2        *Mode2Deps // nil when no interaction-mode resource is configured
 }
 
 func NewAAuthHandler(engine policy.Engine, jwksClient jwksFetcher) *AAuthHandler {
 	return &AAuthHandler{
 		policyEngine: engine,
 		jwksClient:   jwksClient,
+	}
+}
+
+func NewAAuthHandlerWithMode2(engine policy.Engine, jwksClient jwksFetcher, m2 *Mode2Deps) *AAuthHandler {
+	return &AAuthHandler{
+		policyEngine: engine,
+		jwksClient:   jwksClient,
+		mode2:        m2,
 	}
 }
 
@@ -101,6 +111,36 @@ func (h *AAuthHandler) Check(ctx context.Context, req *pb.CheckRequest, rc *conf
 			LatencyMs:        time.Since(start).Milliseconds(),
 		})
 		return resp, nil
+	}
+
+	// ── Mode 2: resource-managed (OAuth bridge) ──────────────────────────────
+	if rc.Access.Require == "interaction" && h.mode2 != nil {
+		authHdr := headers["authorization"]
+		hasAAuthToken := len(authHdr) > 0 && strings.HasPrefix(strings.ToLower(authHdr[0]), "aauth ")
+
+		switch {
+		case hasAAuthToken:
+			// Agent is calling the real API with a wrapped OAuth token.
+			resp := handleAAuthAccess(rc, res, headers, h.mode2)
+			metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "mode2_access").Inc()
+			metrics.CheckLatency.WithLabelValues(rc.ID, "mode2_access").Observe(time.Since(start).Seconds())
+			return resp, nil
+
+		case pendingPathRE.MatchString(path):
+			// Agent is polling /pending/{id}.
+			matches := pendingPathRE.FindStringSubmatch(path)
+			resp := handlePendingPoll(rc, res, matches[1], h.mode2)
+			metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "mode2_poll").Inc()
+			metrics.CheckLatency.WithLabelValues(rc.ID, "mode2_poll").Observe(time.Since(start).Seconds())
+			return resp, nil
+
+		default:
+			// Initial request: issue a 202 interaction challenge.
+			resp := handleInteractionChallenge(rc, res, h.mode2)
+			metrics.CheckTotal.WithLabelValues(rc.ID, levelStr, "mode2_challenge").Inc()
+			metrics.CheckLatency.WithLabelValues(rc.ID, "mode2_challenge").Observe(time.Since(start).Seconds())
+			return resp, nil
+		}
 	}
 
 	if rc.Access.Require == "auth-token" && res.Identity.Level != aauth.LevelAuthorized {

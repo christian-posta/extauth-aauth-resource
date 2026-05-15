@@ -1,0 +1,75 @@
+# AAuth ExtAuthZ service configuration for Mode 2 demo with REAL GitHub OAuth.
+#
+# Prerequisites:
+#   1. Register a GitHub OAuth App at https://github.com/settings/developers
+#      - Application name: AAuth Mode 2 Demo (or anything)
+#      - Homepage URL: http://localhost:8080
+#      - Authorization callback URL: http://localhost:8080/oauth/github-api/callback
+#   2. Copy your Client ID and Client Secret below.
+#   3. Generate an opaque token encryption key:
+#        go run ./cmd/generate-key     # creates demo/resource_key.pem + resource_pub.pem
+#        # For the opaque token AES key:
+#        openssl rand -base64 32        # paste output into opaque_token_key.key_b64 below
+#
+# Start the service:
+#   AAUTH_CONFIG=demo/aauth-config-mode2-github.yaml ./aauth-service
+#
+# See docs/mode2-github.md for the full walkthrough.
+
+listen:
+  grpc: ":7070"
+  http: ":8080"
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl: 30s
+  max_entries: 1000
+
+resources:
+  - id: github-api
+    # Standalone (no agentgateway): browser and agent connect directly to this service.
+    # If you put agentgateway in front, change these to the agentgateway URL/host.
+    issuer: "http://localhost:8080"
+    hosts:
+      - "localhost:8080"
+
+    signing_key:
+      kid: "mode2-github-key"
+      alg: "EdDSA"
+      private_key_file: "demo/resource_key.pem"
+
+    signature_window: 60s
+    # For a quick test you can use hwk (bare key) by setting allow_pseudonymous: true.
+    # In production you'd require a real agent-identified JWT — see aauth-config.example.yaml.
+    allow_pseudonymous: true
+    strip_signature_headers: true
+
+    # AES-256 key used to encrypt the OAuth tokens inside AAuth-Access blobs.
+    # Generate with: openssl rand -base64 32
+    opaque_token_key:
+      key_b64: "REPLACE_WITH_BASE64_32_BYTE_KEY"
+
+    access:
+      require: interaction
+
+    # GitHub OAuth App settings.
+    oauth_bridge:
+      authorize_url: "https://github.com/login/oauth/authorize"
+      token_url:     "https://github.com/login/oauth/access_token"
+      client_id:     "REPLACE_WITH_GITHUB_CLIENT_ID"
+      client_secret: "REPLACE_WITH_GITHUB_CLIENT_SECRET"
+      scopes:
+        - "read:user"
+        - "repo"           # adjust to the scopes your app needs
+      use_pkce: false      # GitHub does not support PKCE on standard OAuth Apps
+      # Base URL where GitHub will redirect back after authorization.
+      # Must match the "Authorization callback URL" in your GitHub OAuth App settings.
+      redirect_uri_base: "http://localhost:8080"
+
+    # Where to send the browser after OAuth completes (optional).
+    # If blank a "you may close this window" page is shown instead.
+    # success_redirect: "http://localhost:8080/"
+
+    agent_servers: []
+    policy:
+      name: default

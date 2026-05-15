@@ -1,0 +1,114 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+# AgentGateway configuration for Mode 2 (resource-managed OAuth bridge) demo.
+#
+# Port layout:
+#   3001 — public-facing listener (agents + browsers connect here)
+#   7070 — aauth-service gRPC ExtAuthZ
+#   8080 — aauth-service HTTP (interaction, OAuth callback, well-known)
+#
+# Route logic:
+#   /.well-known/*     → aauth-service HTTP (bypass ExtAuthZ)
+#   /resource/*        → aauth-service HTTP (bypass ExtAuthZ)
+#   /interaction*      → aauth-service HTTP (bypass ExtAuthZ; browser lands here)
+#   /oauth/*           → aauth-service HTTP (bypass ExtAuthZ; OAuth callback)
+#   /pending/*         → backend THROUGH ExtAuthZ (agents poll here; signature verified)
+#   everything else    → backend THROUGH ExtAuthZ
+
+binds:
+  - port: 3001
+    listeners:
+      - protocol: HTTP
+        routes:
+          # ── aauth-service metadata (no ExtAuthZ) ────────────────────────────
+          - name: aauth-well-known
+            matches:
+              - path:
+                  pathPrefix: /.well-known/
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "localhost:8080"
+
+          - name: aauth-resource-http
+            matches:
+              - path:
+                  pathPrefix: /resource/
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "localhost:8080"
+
+          # ── Mode 2 browser-facing routes (no ExtAuthZ) ───────────────────────
+          - name: aauth-interaction
+            matches:
+              - path:
+                  pathPrefix: /interaction
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "localhost:8080"
+
+          - name: aauth-oauth-callback
+            matches:
+              - path:
+                  pathPrefix: /oauth/
+            policies:
+              urlRewrite:
+                authority:
+                  full: localhost:3001
+            backends:
+              - host: "localhost:8080"
+
+          # ── All other routes (ExtAuthZ enforced) ─────────────────────────────
+          # /pending/* polls are intercepted here and returned by ExtAuthZ directly.
+          # On a successful allow, the request is forwarded to the backend below with
+          # Authorization: Bearer <oauth_access_token> injected by ExtAuthZ.
+          #
+          # Default backend = httpbin.org. To test against the real GitHub API instead,
+          # swap to api.github.com and add a urlRewrite to rewrite the Host header so
+          # GitHub recognizes the request (uncomment the github block below).
+          - name: protected
+            policies:
+              extAuthz:
+                host: "localhost:7070"
+                protocol:
+                  grpc:
+                    context:
+                      aauth_resource_id: "github-api"
+            backends:
+              - host: "httpbin.org:443"
+                policies:
+                  backendTLS: {}
+
+          # # ── Variant: forward to real GitHub API ────────────────────────────
+          # # Uncomment to make agentgateway proxy /api/* to https://api.github.com.
+          # # With this in place, an agent that has done the Mode 2 flow can call
+          # # localhost:3001/api/user (signed, with Authorization: AAuth <opaque>)
+          # # and ExtAuthZ will inject Bearer <github_token>, hitting GitHub for real.
+          # - name: github-api-proxy
+          #   matches:
+          #     - path:
+          #         pathPrefix: /api/
+          #   policies:
+          #     urlRewrite:
+          #       authority:
+          #         full: api.github.com
+          #       path:
+          #         prefix:
+          #           replacePrefixMatch: /
+          #     extAuthz:
+          #       host: "localhost:7070"
+          #       protocol:
+          #         grpc:
+          #           context:
+          #             aauth_resource_id: "github-api"
+          #   backends:
+          #     - host: "api.github.com:443"
+          #       policies:
+          #         backendTLS: {}

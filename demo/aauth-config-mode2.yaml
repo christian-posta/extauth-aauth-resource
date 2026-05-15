@@ -1,0 +1,66 @@
+# AAuth ExtAuthZ service configuration for Mode 2 (resource-managed OAuth bridge) demo.
+#
+# This config uses a STUB OAuth server embedded in the integration test binary.
+# For real GitHub OAuth, use demo/aauth-config-mode2-github.yaml.
+#
+# Start the service:
+#   AAUTH_CONFIG=demo/aauth-config-mode2.yaml ./aauth-service
+#
+# Then run the integration test (which starts the stub OAuth server automatically):
+#   go run ./cmd/integration-test-mode2 \
+#     --grpc 127.0.0.1:7070 \
+#     --resource-issuer http://localhost:8080 \
+#     --resource-id github-api \
+#     --authority localhost:8080 \
+#     --path /api/test \
+#     --stub-oauth-port 19100
+
+listen:
+  grpc: ":7070"
+  http: ":8080"
+
+jwks_cache:
+  success_ttl: 5m
+  error_ttl: 30s
+  max_entries: 1000
+
+resources:
+  - id: github-api
+    # Standalone (no agentgateway): browser/agent hit this service directly on :8080 for HTTP,
+    # :7070 for gRPC ExtAuthZ. With agentgateway in front, set issuer to the agentgateway URL
+    # (e.g. http://localhost:3001) and add a route for /interaction and /oauth/ that bypasses ExtAuthZ.
+    issuer: "http://localhost:8080"
+    hosts:
+      - "localhost:8080"
+
+    signing_key:
+      kid: "mode2-demo-key"
+      alg: "EdDSA"
+      private_key_file: "demo/resource_key.pem"
+
+    signature_window: 60s
+    # The integration test uses the hwk scheme (inline bare public key) for simplicity —
+    # no stub agent server needed. The agent's JKT is derived from the inline public key
+    # and is stable as long as the agent reuses the same key.
+    allow_pseudonymous: true
+    strip_signature_headers: true
+
+    access:
+      require: interaction
+
+    # Stub OAuth server (started by the integration test binary on port 19100).
+    oauth_bridge:
+      authorize_url: "http://localhost:19100/oauth/authorize"
+      token_url:     "http://localhost:19100/oauth/token"
+      client_id:     "test-client"
+      client_secret: "test-secret"
+      scopes:
+        - "read:user"
+      use_pkce: true
+      # Base URL reachable by the browser. Standalone: directly to the aauth-service HTTP port.
+      # The callback URI becomes: {redirect_uri_base}/oauth/github-api/callback
+      redirect_uri_base: "http://localhost:8080"
+
+    agent_servers: []
+    policy:
+      name: default

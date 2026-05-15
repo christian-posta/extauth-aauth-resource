@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"aauth-service/internal/config"
+	"aauth-service/internal/extauthz"
 	"aauth-service/internal/policy"
 	"aauth-service/internal/resource"
 )
@@ -20,6 +22,7 @@ type Server struct {
 	registry     *resource.Registry
 	jwksClient   jwksFetcher
 	policyEngine policy.Engine
+	mode2        *extauthz.Mode2Deps // nil when no interaction-mode resource is configured
 }
 
 type jwksFetcher interface {
@@ -36,11 +39,41 @@ func NewServer(registry *resource.Registry, jwksClient jwksFetcher, engine polic
 	}
 }
 
+func NewServerWithMode2(registry *resource.Registry, jwksClient jwksFetcher, engine policy.Engine, m2 *extauthz.Mode2Deps) *Server {
+	return &Server{
+		registry:     registry,
+		jwksClient:   jwksClient,
+		policyEngine: engine,
+		mode2:        m2,
+	}
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
+	path := r.URL.Path
+
+	switch path {
 	case "/metrics":
 		s.handleMetrics(w, r)
 		return
+	}
+
+	// Mode 2 routes: resolved by path, not by Host. The code lives in the query string.
+	if s.mode2 != nil {
+		if path == "/interaction" {
+			s.handleInteraction(w, r)
+			return
+		}
+		if strings.HasPrefix(path, "/oauth/") {
+			// /oauth/{rid}/callback
+			rest := strings.TrimPrefix(path, "/oauth/")
+			parts := strings.SplitN(rest, "/", 2)
+			if len(parts) == 2 && parts[1] == "callback" {
+				s.handleOAuthCallback(w, r, parts[0])
+				return
+			}
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
 	}
 
 	rc, ok := s.registry.ByHost(r.Host)
@@ -49,7 +82,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.URL.Path {
+	switch path {
 	case "/.well-known/aauth-resource.json":
 		s.handleMetadata(w, r, rc)
 	case "/.well-known/jwks.json":
@@ -142,7 +175,11 @@ func (s *Server) jwksKeysForIssuer(rc *config.ResourceConfig) []map[string]inter
 }
 
 func Start(listenAddr string, registry *resource.Registry, jwksClient jwksFetcher, engine policy.Engine) {
-	srv := NewServer(registry, jwksClient, engine)
+	StartWithMode2(listenAddr, registry, jwksClient, engine, nil)
+}
+
+func StartWithMode2(listenAddr string, registry *resource.Registry, jwksClient jwksFetcher, engine policy.Engine, m2 *extauthz.Mode2Deps) {
+	srv := NewServerWithMode2(registry, jwksClient, engine, m2)
 
 	go func() {
 		log.Printf("Starting HTTP API on %s", listenAddr)

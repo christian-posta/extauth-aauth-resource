@@ -41,6 +41,31 @@ type ResourceConfig struct {
 	// verification) to use http:// for local development hosts (localhost, 127.0.0.1, ::1,
 	// *.localhost) in addition to https://. When false, iss must be https:// (spec default).
 	AllowInsecureJWTIssuer bool
+
+	// Mode 2 (resource-managed / OAuth bridge) fields.
+	OAuthBridge     *OAuthBridgeConfig  // nil unless access.require=interaction
+	OpaqueTokenKey  OpaqueTokenKeyConfig
+	InteractionTTL  time.Duration // default 15m when zero
+	SuccessRedirect string        // optional URL shown/redirected to after OAuth completes
+}
+
+// OAuthBridgeConfig holds the upstream OAuth provider settings used in Mode 2.
+type OAuthBridgeConfig struct {
+	AuthorizeURL    string
+	TokenURL        string
+	ClientID        string
+	ClientSecret    string
+	Scopes          []string
+	Audience        string
+	UsePKCE         bool
+	RedirectURIBase string            // e.g. "http://localhost:3001"; callback = base+"/oauth/{rid}/callback"
+	ExtraAuthParams map[string]string // appended to the authorization URL
+}
+
+// OpaqueTokenKeyConfig specifies how to load the AES-256 key for AAuth-Access tokens.
+type OpaqueTokenKeyConfig struct {
+	KeyFile string // path to a file containing a base64-encoded 32-byte key
+	KeyB64  string // inline base64-encoded 32-byte key (alternative to KeyFile)
 }
 
 type SigningKey struct {

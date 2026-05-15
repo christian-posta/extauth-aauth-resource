@@ -32,12 +32,16 @@ func NewHandler(cfg *config.Config) (*Handler, error) {
 }
 
 func NewHandlerWithRegistry(cfg *config.Config, reg *resource.Registry) (*Handler, error) {
+	return NewHandlerWithRegistryAndMode2(cfg, reg, nil)
+}
+
+func NewHandlerWithRegistryAndMode2(cfg *config.Config, reg *resource.Registry, m2 *Mode2Deps) (*Handler, error) {
 	engine := policy.NewDefaultEngine()
 	jwksClient := jwksfetch.NewClient(cfg)
 
 	return &Handler{
 		registry: reg,
-		aauth:    NewAAuthHandler(engine, jwksClient),
+		aauth:    NewAAuthHandlerWithMode2(engine, jwksClient, m2),
 	}, nil
 }
 

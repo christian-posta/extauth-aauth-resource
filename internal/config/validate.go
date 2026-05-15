@@ -75,6 +75,14 @@ func RequiresResourceTokenSigningKey(rc *ResourceConfig) bool {
 	return strings.EqualFold(strings.TrimSpace(rc.Access.Require), "auth-token")
 }
 
+// IsInteractionMode reports whether the resource uses Mode 2 (resource-managed OAuth bridge).
+func IsInteractionMode(rc *ResourceConfig) bool {
+	if rc == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(rc.Access.Require), "interaction")
+}
+
 func validateSignatureKeySchemes(rc *ResourceConfig) error {
 	for _, s := range rc.AllowedSignatureKeySchemes {
 		if _, ok := allowedSchemes[s]; !ok {
@@ -130,20 +138,47 @@ func validateAccess(rc *ResourceConfig) error {
 	rc.Access.Require = require
 
 	switch require {
-	case "identity", "auth-token":
+	case "identity", "auth-token", "interaction":
 	default:
-		return fmt.Errorf("resource %q: unknown access.require %q (want identity or auth-token)", rc.ID, rc.Access.Require)
+		return fmt.Errorf("resource %q: unknown access.require %q (want identity, auth-token, or interaction)", rc.ID, rc.Access.Require)
 	}
 
-	if require != "auth-token" {
-		return nil
+	if require == "auth-token" {
+		if rc.PersonServer.Issuer == "" {
+			return fmt.Errorf("resource %q: person_server.issuer is required when access.require=auth-token", rc.ID)
+		}
+		if !isAllowedPersonServerIssuer(rc.PersonServer.Issuer) {
+			return fmt.Errorf("resource %q: person_server.issuer must use https, or http for localhost-style development hosts", rc.ID)
+		}
 	}
 
-	if rc.PersonServer.Issuer == "" {
-		return fmt.Errorf("resource %q: person_server.issuer is required when access.require=auth-token", rc.ID)
+	if require == "interaction" {
+		if err := validateOAuthBridge(rc); err != nil {
+			return err
+		}
 	}
-	if !isAllowedPersonServerIssuer(rc.PersonServer.Issuer) {
-		return fmt.Errorf("resource %q: person_server.issuer must use https, or http for localhost-style development hosts", rc.ID)
+	return nil
+}
+
+func validateOAuthBridge(rc *ResourceConfig) error {
+	b := rc.OAuthBridge
+	if b == nil {
+		return fmt.Errorf("resource %q: oauth_bridge is required when access.require=interaction", rc.ID)
+	}
+	if b.AuthorizeURL == "" {
+		return fmt.Errorf("resource %q: oauth_bridge.authorize_url is required", rc.ID)
+	}
+	if b.TokenURL == "" {
+		return fmt.Errorf("resource %q: oauth_bridge.token_url is required", rc.ID)
+	}
+	if b.ClientID == "" {
+		return fmt.Errorf("resource %q: oauth_bridge.client_id is required", rc.ID)
+	}
+	if b.ClientSecret == "" {
+		return fmt.Errorf("resource %q: oauth_bridge.client_secret is required", rc.ID)
+	}
+	if b.RedirectURIBase == "" {
+		return fmt.Errorf("resource %q: oauth_bridge.redirect_uri_base is required", rc.ID)
 	}
 	return nil
 }
